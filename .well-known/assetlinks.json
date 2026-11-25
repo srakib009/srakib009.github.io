@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "io.github.srakib009.twa",
+    "sha256_cert_fingerprints": ["B6:02:6A:B0:65:8F:1F:82:21:E5:28:7F:B5:97:A7:1D:D4:43:0D:CF:CA:A7:99:17:4F:6E:BE:19:41:EB:45:FC"]
+  }
+}]

@@ -1,0 +1,4137 @@
+<!DOCTYPE html>
+<!-- 
+  Leave Count Application v1.4
+  Developer: Rakib Hossain
+  Optimized & Bug-fixed: Production-ready version
+  Changes v1.1: Dark mode chip colors, textarea selectability, modal backdrop click,
+           Escape key for modals, event delegation ripple, debounced saves,
+           storage availability check, duplicate submit prevention, safe-area padding,
+           accessibility improvements, memory leak prevention, external link security.
+  Changes v1.2: Auto-detect current date (timezone-aware, device-local time),
+           setOTToday() fills Month + Date on page open, after record submit,
+           on year switch, and on new year start. handleOTDateInput() syncs Month
+           dropdown to any manually typed date. "📅 Auto" badge shows when
+           date is auto-filled; hides on manual edit. All changes backward-compatible.
+  Changes v1.3: [Bug Fix] syncOTDateToMonth() resets Date to 01 of selected month.
+           [Bug Fix] reloadAllData() calls setOTToday() after restore.
+           [Bug Fix] addOT() validates date year matches active year.
+  Changes v1.4: [Bug Fix] calcDutyEarnings() — old records without dutyType now
+           default to 'modul' so they are no longer silently skipped in earnings.
+           [Bug Fix] updateOTCounts() — count badges now respect active month filter
+           so they match the visible history list correctly.
+           [Bug Fix] init() — removed duplicate renderOTHist() call that caused a
+           double render on every page load, improving startup performance.
+  Changes v1.5: [Bug Fix] putOTRecs() now returns true/false so callers can detect
+           save failures. addOT() now checks this return value — if storage is full,
+           the form is NOT cleared so the user does not lose their unsaved input.
+  Changes v1.6 FINAL: [Bug Fix] reloadAllData() had same double renderOTHist() call
+           as init() — now removed. setOTFilter() handles the single render.
+           [Bug Fix] renderOTHist() — old records without dutyType now display
+           "💼 Modul Man" chip instead of showing blank, consistent with how
+           calcDutyEarnings() and filtering already treat them.
+           All 9 bugs fixed. Fully tested. Production-ready.
+  Changes v1.7: [Data Safety] Added a data-safety layer: every lc_* key is mirrored to a
+           second copy (localStorage + IndexedDB); missing/corrupt keys are auto-restored at
+           startup; persistent storage is requested; backup reminder shown when no recent backup.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a56db">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Leave Count">
+  <meta name="application-name" content="Leave Count">
+  <meta name="description" content="Leave ও Overtime tracker — by Rakib">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="msapplication-tap-highlight" content="no">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>Leave Count</title>
+  <style>
+    /* ===== GLOBAL BOX SIZING FIX ===== */
+    *, *::before, *::after { box-sizing: border-box; }
+    /* ===== MOBILE / WEBVIEW OPTIMIZATION ===== */
+    * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
+    input, textarea, select, button { -webkit-user-select: auto; user-select: auto; touch-action: manipulation; }
+    textarea { -webkit-user-select: text; user-select: text; }
+    body { -webkit-user-select: none; user-select: none; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+    .page-content { -webkit-overflow-scrolling: touch; scroll-behavior: smooth; }
+    button, .nav-card { transition: opacity 0.15s; }
+    button:active, .nav-card:active { opacity: 0.82; }
+    html, body { overflow-x: hidden; max-width: 100vw; }
+    .page { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+
+    /* ===== CSS VARIABLES ===== */
+    :root,
+    [data-theme="light"] {
+      --bg: #eef2ff;
+      --surface: #ffffff;
+      --card: #ffffff;
+      --accent: #1a56db;
+      --accent2: #7c3aed;
+      --accent-light: #e8efff;
+      --success: #059669;
+      --success-light: #d1fae5;
+      --warning: #d97706;
+      --warning-light: #fef3c7;
+      --danger: #dc2626;
+      --danger-light: #fee2e2;
+      --text: #1e293b;
+      --text-secondary: #64748b;
+      --border: #e2e8f0;
+      --input-bg: #f8fafc;
+      --radius: 18px;
+      --radius-sm: 10px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+    }
+
+    [data-theme="dark"] {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --card: #1e293b;
+      --accent: #3b82f6;
+      --accent2: #a78bfa;
+      --accent-light: #1e3a5f;
+      --success: #10b981;
+      --success-light: #064e3b;
+      --warning: #f59e0b;
+      --warning-light: #451a03;
+      --danger: #f87171;
+      --danger-light: #450a0a;
+      --text: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --border: #334155;
+      --input-bg: #0f172a;
+      --shadow: 0 2px 8px rgba(0,0,0,0.3);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    }
+
+    [data-theme="glass"] {
+      --bg: #b8d4f0;
+      --surface: rgba(255,255,255,0.45);
+      --card: rgba(255,255,255,0.4);
+      --accent: #1a56db;
+      --accent2: #7c3aed;
+      --accent-light: rgba(26,86,219,0.15);
+      --success: #059669;
+      --success-light: rgba(5,150,105,0.15);
+      --warning: #d97706;
+      --warning-light: rgba(217,119,6,0.15);
+      --danger: #dc2626;
+      --danger-light: rgba(220,38,38,0.15);
+      --text: #0f1c3f;
+      --text-secondary: #3a5070;
+      --border: rgba(255,255,255,0.6);
+      --input-bg: rgba(255,255,255,0.55);
+      --shadow: 0 4px 16px rgba(100,140,200,0.18);
+      --shadow-lg: 0 8px 32px rgba(100,140,200,0.22);
+    }
+
+    body[data-theme="glass"] {
+      background: linear-gradient(135deg, #c8dff5 0%, #b0c8e8 40%, #c5b8f0 100%);
+      background-attachment: scroll;
+    }
+
+    [data-theme="glass"] .card,
+    [data-theme="glass"] .stat-card,
+    [data-theme="glass"] .nav-card,
+    [data-theme="glass"] .theme-card {
+      background: rgba(255,255,255,0.42) !important;
+      backdrop-filter: blur(18px) saturate(180%);
+      -webkit-backdrop-filter: blur(18px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.65) !important;
+      box-shadow: 0 4px 20px rgba(100,140,220,0.15), inset 0 1px 0 rgba(255,255,255,0.8) !important;
+    }
+
+    /* PERF FIX: .hist-item / .month-item render in large repeated lists (12+ at once)
+       and were previously nested inside an already-blurred .card while also applying
+       their own blur(18px) — stacking many GPU blur layers and causing visible lag on
+       the Leave Count page. Same frosted look kept via background/border/shadow,
+       just without the redundant nested blur computation. */
+    [data-theme="glass"] .hist-item,
+    [data-theme="glass"] .month-item {
+      background: rgba(255,255,255,0.42) !important;
+      border: 1px solid rgba(255,255,255,0.65) !important;
+      box-shadow: 0 4px 20px rgba(100,140,220,0.15), inset 0 1px 0 rgba(255,255,255,0.8) !important;
+    }
+
+    [data-theme="glass"] .topbar {
+      background: rgba(255,255,255,0.5) !important;
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-bottom: 1px solid rgba(255,255,255,0.7) !important;
+    }
+
+    [data-theme="glass"] .form-input,
+    [data-theme="glass"] .form-select,
+    [data-theme="glass"] .month-input {
+      background: rgba(255,255,255,0.55) !important;
+      backdrop-filter: blur(10px);
+      border: 1.5px solid rgba(255,255,255,0.7) !important;
+    }
+
+    [data-theme="glass"] .ot-hero {
+      background: linear-gradient(135deg, rgba(15,28,107,0.75), rgba(26,86,219,0.7) 55%, rgba(124,58,237,0.7)) !important;
+      backdrop-filter: blur(12px);
+    }
+
+    [data-theme="glass"] .home-header {
+      background: linear-gradient(135deg, rgba(15,28,107,0.8) 0%, rgba(26,86,219,0.75) 55%, rgba(124,58,237,0.75) 100%) !important;
+    }
+
+    [data-theme="glass"] #splash {
+      background: linear-gradient(160deg, rgba(15,28,107,0.9) 0%, rgba(26,86,219,0.85) 45%, rgba(124,58,237,0.85) 100%) !important;
+    }
+
+    html, body {
+      height: 100%;
+      height: 100dvh;
+      overscroll-behavior: none;
+    }
+
+    body {
+      font-family: -apple-system, 'SF Pro Display', 'Segoe UI', 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      max-width: 480px;
+      margin: 0 auto;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      transition: background 0.3s, color 0.3s;
+      position: relative;
+    }
+
+
+    /* ===== RIPPLE TOUCH EFFECT ===== */
+    .nav-card, .btn, .icon-btn, .shift-opt, .running-opt, .duty-type-btn {
+      position: relative;
+      overflow: hidden;
+    }
+    .ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.35);
+      transform: scale(0);
+      animation: rippleAnim 0.5s linear;
+      pointer-events: none;
+    }
+    @keyframes rippleAnim {
+      to { transform: scale(4); opacity: 0; }
+    }
+    .page:not(.active) .ripple { display: none; }
+    /* ===== PAGE SYSTEM ===== */
+    .page { display: none; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+    .page.active { display: flex; animation: slideIn 0.28s cubic-bezier(0.34,1.1,0.64,1); }
+
+    /* ===== NUMBER INPUT — hide spinners ===== */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+
+    @keyframes cyberScan {
+      0%   { top: 0%;   opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(24px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ===== SPLASH ===== */
+    #splash {
+      background: linear-gradient(160deg, #0f1c6b 0%, #1a56db 45%, #7c3aed 100%);
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 0;
+      padding: 0 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #splash::before {
+      content: '';
+      position: absolute;
+      width: 320px; height: 320px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.04);
+      top: -80px; right: -100px;
+    }
+    #splash::after {
+      content: '';
+      position: absolute;
+      width: 240px; height: 240px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.04);
+      bottom: -60px; left: -80px;
+    }
+
+    .splash-inner { display: flex; flex-direction: column; align-items: center; gap: 0; }
+
+    .splash-logo {
+      width: 90px; height: 90px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 26px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 28px;
+      border: 1.5px solid rgba(255,255,255,0.25);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      backdrop-filter: blur(10px);
+      animation: popIn 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.2s both;
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.6); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    .splash-welcome {
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.65);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      animation: fadeUp 0.5s ease 0.4s both;
+    }
+
+    .splash-title {
+      font-size: 36px;
+      font-weight: 900;
+      color: white;
+      line-height: 1.1;
+      letter-spacing: -1px;
+      margin-bottom: 6px;
+      animation: fadeUp 0.5s ease 0.5s both;
+    }
+
+    .splash-title span { color: rgba(255,255,255,0.5); font-weight: 400; font-size: 22px; display: block; letter-spacing: 0; }
+
+    .splash-tagline {
+      font-size: 14px;
+      color: rgba(255,255,255,0.6);
+      margin-bottom: 52px;
+      animation: fadeUp 0.5s ease 0.6s both;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .splash-btn {
+      background: white;
+      color: #1a56db;
+      border: none;
+      padding: 17px 52px;
+      border-radius: 50px;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      letter-spacing: 0.2px;
+      animation: fadeUp 0.5s ease 0.7s both;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .splash-btn:active { transform: scale(0.96); box-shadow: 0 4px 16px rgba(0,0,0,0.2); }
+
+    .splash-dev {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      margin-top: 20px;
+      animation: fadeUp 0.5s ease 0.8s both;
+    }
+
+    /* ===== TOP BAR ===== */
+    .topbar {
+      background: var(--surface);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: var(--shadow);
+    }
+    .topbar-title { font-size: 17px; font-weight: 800; color: var(--text); flex: 1; }
+
+    .icon-btn {
+      width: 38px; height: 38px;
+      background: var(--accent-light);
+      border: none; border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--accent);
+      transition: background 0.15s, transform 0.15s;
+      flex-shrink: 0;
+      touch-action: manipulation;
+    }
+    .icon-btn:active { transform: scale(0.93); }
+    .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* ===== HOME ===== */
+    #home { background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
+
+    .home-header {
+      background: linear-gradient(135deg, #0f1c6b 0%, #1a56db 55%, #7c3aed 100%);
+      padding: 20px 20px 20px;
+      color: white;
+      position: relative;
+      overflow: hidden;
+    }
+    .home-header::before {
+      content: '';
+      position: absolute;
+      width: 200px; height: 200px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.07);
+      top: -60px; right: -40px;
+    }
+    .home-greeting { font-size: 13px; opacity: 0.7; margin-bottom: 4px; letter-spacing: 0.3px; }
+    .home-title { font-size: 28px; font-weight: 900; letter-spacing: -0.8px; line-height: 1.1; }
+    .home-subtitle { font-size: 13px; opacity: 0.65; margin-top: 5px; }
+
+    .home-cards { padding: 10px 14px calc(env(safe-area-inset-bottom, 16px) + 24px); margin-top: 0; }
+
+    .nav-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 13px 14px;
+      margin-bottom: 9px;
+      display: flex; align-items: center; gap: 12px;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      border: 1px solid var(--border);
+      transition: transform 0.15s, box-shadow 0.15s;
+      position: relative;
+    }
+    .nav-card:active { transform: scale(0.985); box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+
+    .nav-card-chevron {
+      margin-left: auto;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    .nav-card-icon {
+      width: 44px; height: 44px; border-radius: 13px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .nav-card-text h3 { font-size: 14px; font-weight: 800; color: var(--text); margin-bottom: 2px; }
+    .nav-card-text p  { font-size: 11px; color: var(--text-secondary); line-height: 1.3; }
+
+    /* Theme toggle card */
+    .theme-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin: 0 14px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .theme-label { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; color: var(--text); }
+    .toggle {
+      width: 50px; height: 28px;
+      background: var(--border);
+      border-radius: 50px;
+      position: relative; cursor: pointer;
+      transition: background 0.25s;
+      flex-shrink: 0;
+    }
+    .toggle.on { background: var(--accent); }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 22px; height: 22px;
+      background: white;
+      border-radius: 50%;
+      top: 3px; left: 3px;
+      transition: transform 0.25s;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    .toggle.on::after { transform: translateX(22px); }
+
+    /* ===== PAGE CONTENT ===== */
+    .page-content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 16px 14px calc(env(safe-area-inset-bottom, 16px) + 40px);
+      -webkit-overflow-scrolling: touch;
+      height: 0;
+      overscroll-behavior-y: contain;
+      scroll-behavior: smooth;
+    }
+    .page-content::-webkit-scrollbar { display: none; }
+
+    /* ===== CARDS ===== */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 18px;
+      margin-bottom: 14px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+
+    .card-title {
+      font-size: 11px; font-weight: 800;
+      color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 1px;
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .card-title svg { color: var(--accent); flex-shrink: 0; }
+
+    /* ===== FORMS ===== */
+    .form-group { margin-bottom: 12px; }
+    .form-group:last-child { margin-bottom: 0; }
+
+    .form-label {
+      font-size: 11px; font-weight: 700;
+      color: var(--text-secondary);
+      margin-bottom: 6px; display: block;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    .form-input, .form-select {
+      width: 100%; padding: 13px 14px;
+      background: var(--input-bg);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 16px; color: var(--text);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      -webkit-appearance: none; appearance: none;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(26,86,219,0.13);
+    }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    /* ===== READONLY INPUT STATE ===== */
+    .form-input[readonly] {
+      background: var(--input-bg);
+      color: var(--text);
+      border-color: transparent;
+      cursor: default;
+      pointer-events: none;
+      font-weight: 600;
+    }
+    .form-input[readonly]:focus {
+      border-color: transparent;
+      box-shadow: none;
+    }
+
+    /* ===== EDIT BUTTON in card-title ===== */
+    .emp-edit-btn {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 5px;
+      padding: 6px 13px;
+      border-radius: 20px;
+      border: none;
+      font-size: 11px; font-weight: 800;
+      cursor: pointer;
+      transition: all 0.18s;
+      letter-spacing: 0.2px;
+    }
+    .emp-edit-btn.edit-mode {
+      background: var(--accent-light);
+      color: var(--accent);
+    }
+    .emp-edit-btn.save-mode {
+      background: var(--success);
+      color: white;
+    }
+    .emp-edit-btn:active { transform: scale(0.95); }
+
+    /* ===== BUTTONS ===== */
+    .btn {
+      width: 100%; padding: 15px;
+      border: none; border-radius: 12px;
+      font-size: 14px; font-weight: 800;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: transform 0.15s, opacity 0.15s;
+      letter-spacing: 0.2px;
+    }
+    .btn:active { transform: scale(0.97); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #1a56db, #7c3aed);
+      color: white;
+      box-shadow: 0 4px 16px rgba(26,86,219,0.3);
+    }
+    .btn-success {
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: white;
+      box-shadow: 0 4px 16px rgba(5,150,105,0.25);
+    }
+    .btn-danger {
+      background: linear-gradient(135deg, #dc2626, #ef4444);
+      color: white;
+      box-shadow: 0 4px 12px rgba(220,38,38,0.25);
+    }
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--text);
+    }
+    .btn-sm { width: auto; padding: 8px 14px; font-size: 12px; border-radius: 8px; }
+
+    /* ===== STATS ===== */
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+
+    .stat-card {
+      background: var(--card);
+      border-radius: var(--radius-sm);
+      padding: 14px 8px;
+      text-align: center;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .stat-value { font-size: 26px; font-weight: 900; line-height: 1; margin-bottom: 4px; }
+    .stat-label { font-size: 9px; color: var(--text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; }
+
+    /* ===== PROGRESS ===== */
+    .progress-wrap { margin-bottom: 14px; }
+    .progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .progress-label { font-size: 13px; font-weight: 700; color: var(--text); }
+    .progress-value { font-size: 13px; font-weight: 800; color: var(--accent); }
+    .progress-bar { height: 9px; background: var(--border); border-radius: 50px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 50px; transition: width 0.5s ease; background: linear-gradient(90deg, #1a56db, #7c3aed); will-change: width; }
+
+    /* Leave type breakdown rows */
+    .breakdown-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; }
+    .breakdown-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .breakdown-label { font-size: 12px; color: var(--text-secondary); }
+    .breakdown-value { font-size: 13px; font-weight: 800; color: var(--text); }
+    .breakdown-limit { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+
+    .leave-limit-warning { background: var(--danger-light); border: 1px solid var(--danger); border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; }
+    .leave-limit-warning-line { font-size: 12px; font-weight: 700; color: var(--danger); line-height: 1.5; }
+    .leave-limit-warning-line + .leave-limit-warning-line { margin-top: 4px; }
+
+    /* ===== MONTH GRID ===== */
+    .month-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+
+    .month-item {
+      background: var(--input-bg);
+      border-radius: var(--radius-sm);
+      padding: 11px 10px;
+      border: 1px solid var(--border);
+    }
+    .month-name { font-size: 10px; font-weight: 800; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+
+    .month-type-row {
+      display: flex; align-items: center; gap: 5px; margin-bottom: 5px;
+    }
+    .month-type-row:last-child { margin-bottom: 0; }
+    .month-type-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .month-type-label { font-size: 9px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; flex: 1; }
+    .month-input {
+      width: 44px; padding: 4px 5px; background: var(--card);
+      border: 1.5px solid var(--border); border-radius: 6px;
+      font-size: 12px; font-weight: 800; color: var(--text);
+      outline: none; text-align: center;
+    }
+    .month-input:focus { border-color: var(--accent); }
+    .month-input.annual:focus  { border-color: #1e40af; }
+    .month-input.casual:focus  { border-color: #15803d; }
+    .month-input.medical:focus { border-color: #9d174d; }
+
+    /* ===== HISTORY ===== */
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .section-title  { font-size: 11px; font-weight: 800; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; display: flex; align-items: center; gap: 7px; }
+    .section-title svg { color: var(--accent); }
+
+    .year-badge {
+      font-size: 11px; font-weight: 800; color: var(--accent);
+      background: var(--accent-light); border-radius: 8px;
+      padding: 6px 12px; margin-bottom: 10px;
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .year-section { margin-bottom: 18px; }
+
+    .hist-item {
+      background: var(--input-bg);
+      border-radius: 12px; padding: 13px;
+      margin-bottom: 9px;
+      display: flex; align-items: center; gap: 12px;
+      border: 1px solid var(--border);
+    }
+    .hist-icon {
+      width: 42px; height: 42px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .hist-info { flex: 1; min-width: 0; }
+    .hist-main { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+    /* Overtime History date line ("Month • DD-MonthName-YYYY") is longer than the plain
+       month name shown in Leave History, so let it use the full card width and wrap to a
+       second line instead of truncating. Scoped to #otHist only — Leave History and every
+       other .hist-main usage keep the original single-line ellipsis behavior above. */
+    #otHist .hist-main { white-space: normal; overflow: visible; text-overflow: clip; max-width: none; overflow-wrap: break-word; word-break: break-word; }
+    .hist-sub  { font-size: 11px; color: var(--text-secondary); margin-top: 3px; display: flex; flex-direction: column; gap: 4px; }
+    .hist-value { font-size: 18px; font-weight: 900; color: var(--accent); flex-shrink: 0; }
+    .del-btn {
+      width: 32px; height: 32px;
+      background: var(--danger-light); border: none; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--danger); flex-shrink: 0;
+      transition: transform 0.15s;
+    }
+    .del-btn:active { transform: scale(0.9); }
+
+    /* ===== CHIPS ===== */
+    .chip {
+      display: inline-flex; align-items: center;
+      padding: 2px 5px; border-radius: 50px;
+      font-size: 9px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.2px;
+      white-space: nowrap;
+    }
+    .chip-annual  { background: #dbeafe; color: #1e40af; }
+    .chip-casual  { background: #dcfce7; color: #15803d; }
+    .chip-medical { background: #fce7f3; color: #9d174d; }
+    [data-theme="dark"] .chip-annual  { background: #1e3a5f; color: #93c5fd; }
+    [data-theme="dark"] .chip-casual  { background: #052e16; color: #86efac; }
+    [data-theme="dark"] .chip-medical { background: #4c0519; color: #f9a8d4; }
+
+    /* ===== OVERTIME ===== */
+    .ot-hero {
+      background: linear-gradient(135deg, #0f1c6b, #1a56db 55%, #7c3aed);
+      border-radius: var(--radius); padding: 22px 20px;
+      color: white; margin-bottom: 14px;
+      display: flex; justify-content: space-between; align-items: center;
+      box-shadow: 0 6px 20px rgba(26,86,219,0.3);
+    }
+    .ot-hero-label { font-size: 12px; opacity: 0.75; margin-bottom: 4px; font-weight: 600; }
+    .ot-hero-val   { font-size: 42px; font-weight: 900; line-height: 1; }
+    .ot-hero-unit  { font-size: 12px; opacity: 0.65; margin-top: 3px; }
+
+    .shift-grid    { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+    .running-grid  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+
+    .shift-opt, .running-opt {
+      padding: 11px 4px; border-radius: 10px;
+      text-align: center; cursor: pointer;
+      border: 2px solid transparent;
+      font-size: 11px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.4px;
+      transition: all 0.2s;
+    }
+    .shift-opt.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(26,86,219,0.15); }
+
+    .s-white  { background: #f1f5f9; color: #475569; }
+    .s-yellow { background: #fef9c3; color: #854d0e; }
+    .s-blue   { background: #dbeafe; color: #1e40af; }
+    .s-green  { background: #dcfce7; color: #15803d; }
+
+    /* ✅ Selected shift → সবুজ (same as running shift) */
+    .s-white.active,
+    .s-yellow.active,
+    .s-blue.active,
+    .s-green.active {
+      background: linear-gradient(135deg, #059669, #10b981) !important;
+      color: #fff !important;
+      border-color: #047857 !important;
+      box-shadow: 0 4px 14px rgba(5,150,105,0.45) !important;
+      font-weight: 900 !important;
+    }
+
+    /* ✓ চিহ্ন দেখানোর জন্য */
+    .shift-opt { position: relative; }
+    .shift-opt.active::after {
+      content: '✓';
+      position: absolute;
+      top: 3px; right: 5px;
+      font-size: 9px;
+      font-weight: 900;
+      color: rgba(255,255,255,0.85);
+      line-height: 1;
+    }
+    .r-morning         { background: #fef3c7; color: #92400e; border: 2px solid transparent; }
+    .r-evening         { background: #ede9fe; color: #5b21b6; border: 2px solid transparent; }
+    .r-night           { background: #1e293b; color: #93c5fd; border: 2px solid #334155; }
+
+    /* ✅ Selected running shift → সবুজ */
+    .r-morning.active,
+    .r-evening.active,
+    .r-night.active {
+      background: linear-gradient(135deg, #059669, #10b981) !important;
+      color: #fff !important;
+      border-color: #047857 !important;
+      box-shadow: 0 4px 14px rgba(5,150,105,0.45) !important;
+      font-weight: 900 !important;
+    }
+
+    /* ✓ চিহ্ন দেখানোর জন্য pseudo-element */
+    .running-opt { position: relative; }
+    .running-opt.active::after {
+      content: '✓';
+      position: absolute;
+      top: 3px; right: 5px;
+      font-size: 9px;
+      font-weight: 900;
+      color: rgba(255,255,255,0.85);
+      line-height: 1;
+    }
+    [data-theme="dark"] .s-white   { background: #1e293b; color: #94a3b8; }
+    [data-theme="dark"] .s-yellow  { background: #451a03; }
+    [data-theme="dark"] .s-blue    { background: #1e3a5f; }
+    [data-theme="dark"] .s-green   { background: #052e16; }
+    [data-theme="dark"] .r-morning { background: #451a03; color: #fcd34d; }
+    [data-theme="dark"] .r-evening { background: #2e1065; color: #c4b5fd; }
+    [data-theme="dark"] .r-night   { background: #0f172a; color: #93c5fd; }
+
+    /* ===== CONTACT ===== */
+    .contact-hero {
+      background: linear-gradient(140deg, #0055aa 0%, #0088cc 100%);
+      border-radius: var(--radius); padding: 36px 24px;
+      text-align: center; color: white; margin-bottom: 14px;
+      box-shadow: 0 8px 28px rgba(0,136,204,0.35);
+    }
+    .contact-icon-wrap {
+      width: 88px; height: 88px;
+      background: rgba(255,255,255,0.18); border-radius: 26px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 18px;
+      border: 2.5px solid rgba(255,255,255,0.4);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+    }
+    .admin-icon-wrap {
+      display: flex; justify-content: center;
+      margin-bottom: 8px;
+    }
+    .admin-icon-ring {
+      width: 58px; height: 58px;
+      background: linear-gradient(135deg, rgba(255,215,0,0.2), rgba(255,140,0,0.15));
+      border: 2px solid rgba(255,215,0,0.6);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 18px rgba(255,200,0,0.5), 0 0 0 4px rgba(255,215,0,0.15);
+      animation: iconPulse 2.5s ease-in-out infinite alternate;
+    }
+    @keyframes iconPulse {
+      from { box-shadow: 0 0 18px rgba(255,200,0,0.5), 0 0 0 4px rgba(255,215,0,0.15); }
+      to   { box-shadow: 0 0 30px rgba(255,200,0,0.8), 0 0 0 8px rgba(255,215,0,0.08); }
+    }
+    .admin-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+      color: #7a3e00;
+      padding: 5px 14px;
+      border-radius: 50px;
+      font-size: 11px; font-weight: 900;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      box-shadow: 0 3px 12px rgba(255,170,0,0.45), 0 0 0 2px rgba(255,255,255,0.25);
+      animation: badgeGlow 2.5s ease-in-out infinite alternate;
+    }
+    @keyframes badgeGlow {
+      from { box-shadow: 0 3px 12px rgba(255,170,0,0.45), 0 0 0 2px rgba(255,255,255,0.25); }
+      to   { box-shadow: 0 4px 20px rgba(255,200,0,0.75), 0 0 0 3px rgba(255,255,255,0.4); }
+    }
+    .admin-badge svg { flex-shrink: 0; }
+    .contact-name { font-size: 24px; font-weight: 900; margin-bottom: 5px; }
+    .contact-desc { font-size: 13px; opacity: 0.75; margin-bottom: 26px; line-height: 1.6; }
+    .tg-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      background: white; color: #0088cc;
+      padding: 15px 30px; border-radius: 50px;
+      font-size: 15px; font-weight: 800;
+      text-decoration: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      transition: transform 0.15s;
+    }
+    .tg-btn:active { transform: scale(0.96); }
+
+    /* ===== INFO LIST ===== */
+    .info-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-key { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+    .info-val { font-size: 13px; font-weight: 800; color: var(--text); }
+
+    /* ===== EMPTY STATE ===== */
+    .empty-state {
+      text-align: center; padding: 36px 20px;
+      color: var(--text-secondary);
+    }
+    .empty-state svg { opacity: 0.3; margin-bottom: 12px; display: block; margin-left: auto; margin-right: auto; }
+    .empty-state p { font-size: 13px; font-weight: 600; }
+
+    /* ===== TOAST ===== */
+    .toast {
+      position: fixed; bottom: 28px; left: 50%;
+      transform: translateX(-50%) translateY(120px);
+      background: #1e293b; color: white;
+      padding: 12px 22px; border-radius: 20px;
+      font-size: 13px; font-weight: 700; z-index: 9999;
+      transition: transform 0.3s cubic-bezier(0.34,1.2,0.64,1);
+      white-space: normal;
+      width: max-content;
+      max-width: calc(100vw - 48px);
+      word-break: break-word;
+      text-align: center;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ===== DIVIDER ===== */
+    .divider { height: 1px; background: var(--border); margin: 14px 0; }
+
+    /* ===== NORMAL / HOLIDAY TOGGLE ===== */
+    .duty-nature-toggle {
+      display: flex; align-items: center;
+      background: var(--input-bg);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 3px;
+      gap: 3px;
+      flex-shrink: 0;
+    }
+    .duty-nature-btn {
+      padding: 6px 13px; border-radius: 7px;
+      font-size: 11px; font-weight: 800;
+      border: none; cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.34,1.1,0.64,1);
+      letter-spacing: 0.3px;
+      background: transparent;
+      color: var(--text-secondary);
+    }
+    .duty-nature-btn.active-normal {
+      background: var(--success);
+      color: white;
+      box-shadow: 0 2px 8px rgba(5,150,105,0.35);
+    }
+    .duty-nature-btn.active-holiday {
+      background: var(--danger);
+      color: white;
+      box-shadow: 0 2px 8px rgba(220,38,38,0.35);
+    }
+    /* Duty-nature label in history */
+    .nature-badge-normal {
+      font-size: 10px; font-weight: 800;
+      color: var(--success);
+      letter-spacing: 0.3px;
+    }
+    .nature-badge-holiday {
+      font-size: 10px; font-weight: 800;
+      color: var(--danger);
+      letter-spacing: 0.3px;
+    }
+    /* DOUBLE DUTY indicator (Holiday records only) */
+    .double-duty-badge {
+      display: inline-block;
+      font-size: 8.5px; font-weight: 900; letter-spacing: 0.6px;
+      color: #39ff14; background: #052e16;
+      border: 1px solid #39ff14; border-radius: 5px;
+      padding: 1px 5px; line-height: 1.3;
+      text-shadow: 0 0 4px #39ff14, 0 0 8px #39ff14;
+      box-shadow: 0 0 6px rgba(57,255,20,0.6);
+      animation: dblDutyPulse 1.4s ease-in-out infinite;
+    }
+    @keyframes dblDutyPulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(57,255,20,0.8); }
+      50%      { opacity: 0.55; box-shadow: 0 0 2px rgba(57,255,20,0.3); }
+    }
+    @media (prefers-reduced-motion: reduce) { .double-duty-badge { animation: none; } }
+    /* Duty count badge in history */
+    .duty-count-badge {
+      font-size: 9px; font-weight: 900;
+      background: var(--accent-light);
+      color: var(--accent);
+      padding: 2px 6px; border-radius: 20px;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+    }
+
+    /* ===== DUTY CALCULATOR ===== */
+    .duty-earnings-hero {
+      background: linear-gradient(135deg, #065f46, #059669 55%, #10b981);
+      border-radius: var(--radius); padding: 18px 20px;
+      color: white; margin-bottom: 14px;
+      display: flex; justify-content: space-between; align-items: center;
+      box-shadow: 0 6px 20px rgba(5,150,105,0.35);
+      animation: fadeUp 0.4s ease both;
+    }
+    .duty-earnings-label { font-size: 11px; opacity: 0.75; margin-bottom: 3px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; }
+    .duty-earnings-val   { font-size: 36px; font-weight: 900; line-height: 1; letter-spacing: -1px; }
+    .duty-earnings-unit  { font-size: 11px; opacity: 0.65; margin-top: 3px; }
+
+    /* Rate Row */
+    .duty-rate-row {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--input-bg);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 11px 12px;
+      margin-bottom: 9px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .duty-rate-row:last-child { margin-bottom: 0; }
+    .duty-rate-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .duty-rate-name { font-size: 13px; font-weight: 800; color: var(--text); flex: 1; }
+    .duty-rate-input {
+      width: 80px; padding: 7px 10px;
+      background: var(--card); border: 1.5px solid var(--border);
+      border-radius: 8px; font-size: 13px; font-weight: 800;
+      color: var(--text); outline: none; text-align: right;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .duty-rate-input:focus { border-color: var(--success); box-shadow: 0 0 0 3px rgba(5,150,105,0.15); }
+    .duty-rate-input[readonly] {
+      background: var(--input-bg); border-color: transparent;
+      cursor: default; pointer-events: none; font-weight: 800;
+    }
+    .duty-rate-edit-btn {
+      width: 34px; height: 34px; border: none; border-radius: 9px;
+      background: var(--accent-light); color: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
+      transition: background 0.15s, transform 0.15s;
+    }
+    .duty-rate-edit-btn.save-state { background: var(--success); color: white; }
+    .duty-rate-edit-btn:active { transform: scale(0.92); }
+
+    /* Duty Type Options */
+    .duty-type-grid { display: grid; grid-template-columns: 1fr; gap: 8px; margin-bottom: 4px; }
+    .duty-type-opt {
+      display: flex; align-items: center; gap: 12px;
+      padding: 13px 14px; border-radius: 11px;
+      border: 2px solid var(--border);
+      background: var(--input-bg);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.34,1.1,0.64,1);
+      position: relative; overflow: hidden;
+    }
+    .duty-type-opt.active {
+      background: linear-gradient(135deg, rgba(5,150,105,0.12), rgba(16,185,129,0.08));
+      border-color: var(--success);
+      box-shadow: 0 0 0 3px rgba(5,150,105,0.12);
+    }
+    .duty-type-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+    .duty-type-name { font-size: 13px; font-weight: 800; color: var(--text); flex: 1; }
+    .duty-type-rate { font-size: 11px; color: var(--text-secondary); font-weight: 700; }
+    .duty-type-check {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--border); display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: all 0.2s;
+      font-size: 11px; font-weight: 900; color: transparent;
+    }
+    .duty-type-opt.active .duty-type-check {
+      background: var(--success); color: white;
+    }
+
+    /* Duty Count Row */
+    .duty-count-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border-radius: 11px;
+      background: var(--input-bg); border: 1.5px solid var(--border);
+      margin-bottom: 9px; transition: border-color 0.2s;
+    }
+    .duty-count-row:last-child { margin-bottom: 0; }
+    .duty-count-label { flex: 1; }
+    .duty-count-name { font-size: 13px; font-weight: 800; color: var(--text); }
+    .duty-count-rate-txt { font-size: 10px; color: var(--text-secondary); font-weight: 600; margin-top: 2px; }
+    .duty-count-stepper {
+      display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+    }
+    .stepper-btn {
+      width: 30px; height: 30px; border-radius: 8px; border: none;
+      background: var(--accent-light); color: var(--accent);
+      font-size: 18px; font-weight: 900; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s; line-height: 1;
+    }
+    .stepper-btn:active { transform: scale(0.9); }
+    .stepper-val {
+      width: 36px; text-align: center; font-size: 16px;
+      font-weight: 900; color: var(--text);
+    }
+    .duty-count-earn { font-size: 12px; font-weight: 800; color: var(--success); flex-shrink: 0; min-width: 50px; text-align: right; }
+
+    /* Selection Badge */
+    .sel-order-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #ffffff; color: #16a34a;
+      font-size: 11px; font-weight: 900;
+      position: absolute;
+      top: 2px; right: 2px;
+      animation: popIn 0.25s cubic-bezier(0.34,1.56,0.64,1) both;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      line-height: 1;
+      pointer-events: none;
+      border: 1.5px solid #16a34a;
+    }
+
+    /* Duty History */
+    .duty-hist-item {
+      background: var(--input-bg); border-radius: 11px;
+      padding: 11px 13px; margin-bottom: 8px;
+      border: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .duty-hist-icon {
+      width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+      background: var(--success-light); color: var(--success);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .duty-hist-info { flex: 1; min-width: 0; }
+    .duty-hist-main { font-size: 12px; font-weight: 800; color: var(--text); }
+    .duty-hist-sub  { font-size: 10px; color: var(--text-secondary); margin-top: 2px; }
+    .duty-hist-earn { font-size: 16px; font-weight: 900; color: var(--success); flex-shrink: 0; }
+    .duty-hist-del  {
+      width: 28px; height: 28px; background: var(--danger-light);
+      border: none; border-radius: 7px; color: var(--danger);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0; transition: transform 0.15s;
+    }
+    .duty-hist-del:active { transform: scale(0.9); }
+
+    /* ===== OT MONTH FILTER ===== */
+    .ot-month-toggle-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 7px 11px; border-radius: 8px; border: none;
+      font-size: 11px; font-weight: 800; cursor: pointer;
+      background: var(--accent-light); color: var(--accent);
+      transition: all 0.18s; white-space: nowrap; flex-shrink: 0;
+      letter-spacing: 0.2px;
+    }
+    .ot-month-toggle-btn.active {
+      background: var(--accent); color: white;
+      box-shadow: 0 3px 10px rgba(26,86,219,0.28);
+    }
+    /* Visually indicates a month filter is currently applied */
+    .ot-month-toggle-btn.filtering {
+      background: var(--success-light);
+      color: var(--success);
+      border: 1.5px solid var(--success);
+      box-shadow: 0 2px 8px rgba(5,150,105,0.2);
+    }
+    [data-theme="dark"] .ot-month-toggle-btn.filtering {
+      background: rgba(16,185,129,0.15);
+      color: var(--success);
+      border-color: var(--success);
+    }
+    .ot-month-toggle-btn:active { transform: scale(0.94); }
+    .ot-month-toggle-btn svg { transition: transform 0.22s; }
+    .ot-month-toggle-btn.active svg { transform: rotate(180deg); }
+
+    .ot-month-dropdown {
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height 0.28s cubic-bezier(0.4,0,0.2,1), opacity 0.22s ease, margin 0.22s;
+      opacity: 0;
+      margin-bottom: 0;
+    }
+    .ot-month-dropdown.open {
+      max-height: 260px;
+      opacity: 1;
+      margin-bottom: 12px;
+    }
+    .ot-month-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      padding: 10px;
+      background: var(--input-bg);
+      border: 1.5px solid var(--border);
+      border-radius: 11px;
+    }
+    /* BUG FIX 2: Removed 'border: none' that was declared then immediately overridden
+       by 'border: 1.5px solid var(--border)' in the same ruleset — redundant dead rule */
+    .ot-month-chip {
+      padding: 8px 4px; border-radius: 8px;
+      font-size: 10px; font-weight: 800; cursor: pointer;
+      background: var(--card); color: var(--text-secondary);
+      border: 1.5px solid var(--border);
+      transition: all 0.17s; text-align: center;
+      letter-spacing: 0.2px;
+    }
+    .ot-month-chip:active { transform: scale(0.93); }
+    .ot-month-chip.selected {
+      background: var(--accent); color: white;
+      border-color: var(--accent);
+      box-shadow: 0 3px 10px rgba(26,86,219,0.28);
+    }
+    .ot-month-chip.clear-chip {
+      grid-column: span 4;
+      background: var(--danger-light); color: var(--danger);
+      border-color: var(--danger-light);
+      font-size: 11px;
+    }
+    .ot-month-chip.clear-chip:active { opacity: 0.85; }
+    [data-theme="glass"] .ot-month-grid {
+      background: rgba(255,255,255,0.42) !important;
+      backdrop-filter: blur(10px);
+      border-color: rgba(255,255,255,0.6) !important;
+    }
+    [data-theme="glass"] .ot-month-chip {
+      background: rgba(255,255,255,0.45) !important;
+      border-color: rgba(255,255,255,0.55) !important;
+    }
+    /* Glass theme MUST NOT override the selected state */
+    [data-theme="glass"] .ot-month-chip.selected {
+      background: var(--accent) !important;
+      color: white !important;
+      border-color: var(--accent) !important;
+      box-shadow: 0 3px 12px rgba(26,86,219,0.38) !important;
+    }
+    /* Dark theme selected state */
+    [data-theme="dark"] .ot-month-chip.selected {
+      background: var(--accent) !important;
+      color: white !important;
+      border-color: var(--accent) !important;
+    }
+
+    [data-theme="glass"] .duty-earnings-hero {
+      background: linear-gradient(135deg, rgba(6,95,70,0.8), rgba(5,150,105,0.75) 55%, rgba(16,185,129,0.7)) !important;
+      backdrop-filter: blur(12px);
+    }
+    [data-theme="glass"] .duty-rate-row,
+    [data-theme="glass"] .duty-type-opt,
+    [data-theme="glass"] .duty-count-row,
+    [data-theme="glass"] .duty-hist-item {
+      background: rgba(255,255,255,0.42) !important;
+      backdrop-filter: blur(10px);
+      border-color: rgba(255,255,255,0.6) !important;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ======== SPLASH ======== -->
+<div id="splash" class="page active">
+  <div class="splash-inner">
+    <div class="splash-logo">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2.5" ry="2.5"/>
+        <line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
+        <line x1="8" y1="14" x2="16" y2="14"/>
+        <line x1="8" y1="18" x2="12" y2="18"/>
+      </svg>
+    </div>
+    <div class="splash-welcome">Welcome To</div>
+    <div class="splash-title">Leave Count
+      <span>Application</span>
+    </div>
+    <div class="splash-tagline">Track your leaves &amp; overtime with ease</div>
+    <button class="splash-btn" onclick="goHome()">Get Started</button>
+    <div class="splash-dev" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:24px;">
+      <span style="font-size:13px;font-weight:400;color:rgba(255,255,255,0.45);letter-spacing:1.5px;text-transform:uppercase;">Developer</span>
+      <span style="color:rgba(255,255,255,0.3);font-size:13px;">:</span>
+      <span style="font-size:16px;font-weight:900;color:white;letter-spacing:1px;font-style:italic;text-shadow:0 2px 12px rgba(255,255,255,0.25);">Rakib</span>
+      <!-- Bangladesh Flag SVG -->
+      <svg width="26" height="17" viewBox="0 0 26 17" xmlns="http://www.w3.org/2000/svg" style="border-radius:3px;box-shadow:0 1px 6px rgba(0,0,0,0.35);flex-shrink:0;">
+        <rect width="26" height="17" fill="#006A4E"/>
+        <circle cx="12" cy="8.5" r="5" fill="#F42A41"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- ======== HOME ======== -->
+<div id="home" class="page">
+  <div class="home-header" style="display:flex;justify-content:space-between;align-items:flex-start;">
+    <div>
+      <div class="home-greeting" id="homeGreeting">Hello, Welcome Back</div>
+      <div class="home-title">Leave Count</div>
+      <div class="home-subtitle">Your leave &amp; overtime manager</div>
+    </div>
+    <div style="text-align:right;flex-shrink:0;margin-left:12px;background:rgba(255,255,255,0.12);border-radius:12px;padding:10px 12px;border:1px solid rgba(255,255,255,0.2);">
+      <div id="clockTime" style="font-size:18px;font-weight:900;color:white;letter-spacing:1.5px;line-height:1.1;font-variant-numeric:tabular-nums;"></div>
+      <div id="clockDate" style="font-size:10px;color:rgba(255,255,255,0.75);margin-top:4px;font-weight:600;letter-spacing:0.3px;"></div>
+    </div>
+  </div>
+
+  <div class="home-cards">
+    <div class="nav-card" onclick="showPage('leave')">
+      <div class="nav-card-icon" style="background:#dbeafe;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2.5"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+      </div>
+      <div class="nav-card-text">
+        <h3>Leave Count</h3>
+        <p>Track annual, casual &amp; medical leave</p>
+      </div>
+      <div class="nav-card-chevron">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <div class="nav-card" onclick="showPage('overtime')">
+      <div class="nav-card-icon" style="background:#dcfce7;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </div>
+      <div class="nav-card-text">
+        <h3>Overtime Count</h3>
+        <p>Record &amp; track all overtime hours</p>
+      </div>
+      <div class="nav-card-chevron">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <div class="nav-card" onclick="showPage('dataio')">
+      <div class="nav-card-icon" style="background:#fce7f3;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#be185d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <div class="nav-card-text">
+        <h3>Data Import / Export</h3>
+        <p>Clipboard দিয়ে Backup Copy ও Restore করুন</p>
+      </div>
+      <div class="nav-card-chevron">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <div class="nav-card" onclick="showPage('contact')">
+      <div class="nav-card-icon" style="background:#e0f2fe;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0369a1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
+      <div class="nav-card-text">
+        <h3>Contact Me</h3>
+        <p>Reach the developer on Telegram</p>
+      </div>
+      <div class="nav-card-chevron">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="theme-card" style="margin:0 14px 16px;">
+    <div class="theme-label">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+      Theme
+    </div>
+    <div style="display:flex;gap:7px;">
+      <button id="btn-theme-light" onclick="setTheme('light')" style="padding:7px 12px;border-radius:20px;border:2px solid var(--border);background:var(--input-bg);color:var(--text);font-size:11px;font-weight:800;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:5px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        Light
+      </button>
+      <button id="btn-theme-dark" onclick="setTheme('dark')" style="padding:7px 12px;border-radius:20px;border:2px solid var(--border);background:var(--input-bg);color:var(--text);font-size:11px;font-weight:800;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:5px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        Dark
+      </button>
+      <button id="btn-theme-glass" onclick="setTheme('glass')" style="padding:7px 12px;border-radius:20px;border:2px solid var(--border);background:var(--input-bg);color:var(--text);font-size:11px;font-weight:800;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:5px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M12 2c2.76 0 5 4.48 5 10s-2.24 10-5 10"/><path d="M2 12h20"/></svg>
+        Glass
+      </button>
+    </div>
+  </div>
+</div><!-- /home -->
+
+<!-- ======== LEAVE COUNT PAGE ======== -->
+<div id="leave" class="page">
+  <div class="topbar">
+    <button class="icon-btn" onclick="showPage('home')" aria-label="Back">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="topbar-title">Leave Count</span>
+    <span class="active-year-badge" onclick="openYearPicker()" style="font-size:12px;font-weight:800;color:var(--accent);background:var(--accent-light);padding:4px 10px;border-radius:8px;cursor:pointer;"></span>
+    <button class="icon-btn" onclick="startNewYear()" title="New Year" style="background:#dcfce7;color:#15803d;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+    </button>
+    <button class="icon-btn" onclick="resetLeave()" title="Reset">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+    </button>
+  </div>
+
+  <div class="page-content">
+
+    <!-- Employee Info -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Employee Information
+        <button class="emp-edit-btn edit-mode" id="empEditBtn" onclick="toggleEmpEdit()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit
+        </button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Company Name</label>
+        <input class="form-input" id="companyName" type="text" placeholder="Enter company name" readonly>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Employee Name</label>
+        <input class="form-input" id="empName" type="text" placeholder="Enter your full name" readonly>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Card Number</label>
+          <input class="form-input" id="cardNo" type="text" placeholder="Card #" readonly>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Department</label>
+          <input class="form-input" id="deptName" type="text" placeholder="Department" readonly>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Total Annual Leave (days)</label>
+        <input class="form-input" id="totalLeave" type="number" min="1" max="365" placeholder="e.g. 41" readonly>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value" id="statTotal" style="color:var(--accent);">--</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statUsed" style="color:var(--warning);">--</div>
+        <div class="stat-label">Used</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statRemain" style="color:var(--success);">--</div>
+        <div class="stat-label">Remaining</div>
+      </div>
+    </div>
+
+    <!-- Progress & Breakdown -->
+    <div class="card" style="padding:16px 18px;">
+      <div class="progress-wrap">
+        <div class="progress-header">
+          <span class="progress-label">Leave Usage</span>
+          <span class="progress-value" id="progPct">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progFill" style="width:0%;"></div>
+        </div>
+      </div>
+      <div class="divider" style="margin:12px 0 10px;"></div>
+      <div class="breakdown-row">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="breakdown-dot" style="background:#1e40af;"></div>
+          <span class="breakdown-label">Annual Leave</span>
+        </div>
+        <span class="breakdown-limit" id="bdAnnualLimit">17 days</span>
+        <span class="breakdown-value" id="bdAnnual">0 days</span>
+      </div>
+      <div class="breakdown-row">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="breakdown-dot" style="background:#15803d;"></div>
+          <span class="breakdown-label">Casual Leave</span>
+        </div>
+        <span class="breakdown-limit" id="bdCasualLimit">10 days</span>
+        <span class="breakdown-value" id="bdCasual">0 days</span>
+      </div>
+      <div class="breakdown-row">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="breakdown-dot" style="background:#9d174d;"></div>
+          <span class="breakdown-label">Medical Leave</span>
+        </div>
+        <span class="breakdown-limit" id="bdMedicalLimit">14 days</span>
+        <span class="breakdown-value" id="bdMedical">0 days</span>
+      </div>
+    </div>
+
+    <!-- Leave Limit Warning (hidden when no leave type is over its limit) -->
+    <div id="leaveLimitWarning" class="leave-limit-warning" style="display:none;"></div>
+
+
+
+    <!-- Monthly Tracking -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
+        Monthly Leave Tracker
+      </div>
+      <div class="month-grid" id="monthGrid"></div>
+      <div style="margin-top:12px;">
+        <button class="btn btn-success" onclick="saveMonthly()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Save Monthly Data
+        </button>
+      </div>
+    </div>
+
+    <!-- Leave History -->
+    <div class="card">
+      <div class="section-header">
+        <div class="section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Leave History
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="clearAllLeave()">Clear All</button>
+      </div>
+      <div id="leaveHist"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ======== OVERTIME PAGE ======== -->
+<div id="overtime" class="page">
+  <div class="topbar">
+    <button class="icon-btn" onclick="showPage('home')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="topbar-title">Overtime Count</span>
+    <span class="active-year-badge" onclick="openYearPicker()" style="font-size:12px;font-weight:800;color:var(--accent);background:var(--accent-light);padding:4px 10px;border-radius:8px;cursor:pointer;"></span>
+    <button class="icon-btn" onclick="startNewYear()" title="New Year" style="background:#dcfce7;color:#15803d;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+    </button>
+    <button class="icon-btn" onclick="resetOT()" title="Reset">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+    </button>
+  </div>
+
+  <div class="page-content">
+
+    <!-- OT Hero (combined) -->
+    <div class="ot-hero" style="flex-direction:column;gap:0;padding:20px 20px 16px;">
+      <!-- Top row: OT Hours left, Duty Earnings right -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;width:100%;gap:10px;">
+        <!-- Left: OT Hours -->
+        <div>
+          <div class="ot-hero-label" style="display:flex;align-items:center;gap:6px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Total Overtime Hours
+          </div>
+          <div class="ot-hero-val" id="otTotal">0</div>
+          <div class="ot-hero-unit">hours accumulated</div>
+        </div>
+        <!-- Divider -->
+        <div style="width:1px;background:rgba(255,255,255,0.18);align-self:stretch;margin:0 4px;flex-shrink:0;"></div>
+        <!-- Right: Duty Earnings -->
+        <div style="text-align:right;">
+          <div class="ot-hero-label" style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            Total Duty Earnings
+          </div>
+          <div id="dutyTotalEarnings" style="font-size:28px;font-weight:900;line-height:1;letter-spacing:-0.5px;color:#6ee7b7;">৳ 0</div>
+          <div class="ot-hero-unit">auto-calculated</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Duty Rate Strip (ultra compact with labels) -->
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:11px;padding:6px 9px;margin-bottom:14px;box-shadow:var(--shadow);">
+      <div style="font-size:9px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;text-align:center;margin-bottom:5px;opacity:0.75;">হাজিরা প্রতি টাকা</div>
+      <div style="display:flex;align-items:stretch;gap:5px;">
+        <!-- Modul Man -->
+        <div id="rateRow-modul" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 5px 4px;transition:border-color 0.2s;min-width:0;">
+          <div style="display:flex;align-items:center;gap:3px;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#1a56db;flex-shrink:0;display:inline-block;"></span>
+            <span style="font-size:8.5px;font-weight:800;color:#1a56db;white-space:nowrap;">Modul Man</span>
+          </div>
+          <input id="rate-modul" type="number" min="0" placeholder="0" readonly oninput="calcDutyEarnings()"
+            style="width:100%;padding:0;font-size:12px;font-weight:900;border:none;background:transparent;text-align:center;outline:none;color:var(--text);min-width:0;-moz-appearance:textfield;">
+        </div>
+        <!-- CBC Filler -->
+        <div id="rateRow-cbc" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 5px 4px;transition:border-color 0.2s;min-width:0;">
+          <div style="display:flex;align-items:center;gap:3px;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#7c3aed;flex-shrink:0;display:inline-block;"></span>
+            <span style="font-size:8.5px;font-weight:800;color:#7c3aed;white-space:nowrap;">CBC Filler</span>
+          </div>
+          <input id="rate-cbc" type="number" min="0" placeholder="0" readonly oninput="calcDutyEarnings()"
+            style="width:100%;padding:0;font-size:12px;font-weight:900;border:none;background:transparent;text-align:center;outline:none;color:var(--text);min-width:0;-moz-appearance:textfield;">
+        </div>
+        <!-- Extra Others -->
+        <div id="rateRow-extra" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;padding:5px 5px 4px;transition:border-color 0.2s;min-width:0;">
+          <div style="display:flex;align-items:center;gap:3px;">
+            <span style="width:6px;height:6px;border-radius:50%;background:#d97706;flex-shrink:0;display:inline-block;"></span>
+            <span style="font-size:8.5px;font-weight:800;color:#d97706;white-space:nowrap;">Extra Others</span>
+          </div>
+          <input id="rate-extra" type="number" min="0" placeholder="0" readonly oninput="calcDutyEarnings()"
+            style="width:100%;padding:0;font-size:12px;font-weight:900;border:none;background:transparent;text-align:center;outline:none;color:var(--text);min-width:0;-moz-appearance:textfield;">
+        </div>
+        <!-- Edit btn -->
+        <div style="display:flex;align-items:center;">
+          <button id="allRateEditBtn" onclick="toggleAllRates()" style="width:24px;height:24px;border:none;border-radius:6px;background:var(--accent-light);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:all 0.18s;" title="Edit rates">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add OT -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Add Overtime Record
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Month</label>
+          <select class="form-select" id="otMonth" onchange="syncOTDateToMonth()">
+            <option value="">Select</option>
+            <option>January</option><option>February</option><option>March</option>
+            <option>April</option><option>May</option><option>June</option>
+            <option>July</option><option>August</option><option>September</option>
+            <option>October</option><option>November</option><option>December</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:center;gap:5px;">
+            Date
+            <span id="otDateTodayBadge" style="font-size:9px;font-weight:800;color:var(--success);background:var(--success-light);padding:2px 6px;border-radius:6px;letter-spacing:0.3px;white-space:nowrap;">📅 Auto</span>
+          </label>
+          <input class="form-input" id="otDate" type="date" oninput="handleOTDateInput()">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Shift Type <span style="font-size:9px;color:var(--accent);font-weight:700;background:var(--accent-light);padding:2px 6px;border-radius:6px;margin-left:4px;">একাধিক select করা যাবে</span></label>
+        <div class="shift-grid">
+          <div class="shift-opt s-white" id="st-white" onclick="toggleShift('white')">White</div>
+          <div class="shift-opt s-yellow" id="st-yellow" onclick="toggleShift('yellow')">Yellow</div>
+          <div class="shift-opt s-blue" id="st-blue" onclick="toggleShift('blue')">Blue</div>
+          <div class="shift-opt s-green" id="st-green" onclick="toggleShift('green')">Green</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Running Shift <span style="font-size:9px;color:var(--accent);font-weight:700;background:var(--accent-light);padding:2px 6px;border-radius:6px;margin-left:4px;">একাধিক select করা যাবে</span></label>
+        <div class="running-grid">
+          <div class="running-opt r-morning" id="rs-morning" onclick="toggleRunning('morning')">Morning</div>
+          <div class="running-opt r-evening" id="rs-evening" onclick="toggleRunning('evening')">Evening</div>
+          <div class="running-opt r-night" id="rs-night" onclick="toggleRunning('night')">Night</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Hours Worked</label>
+        <input class="form-input" id="otHours" type="number" placeholder="e.g. 4" min="0.5" step="0.5">
+      </div>
+
+      <div class="form-group">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <label class="form-label" style="margin-bottom:0;">Duty Type</label>
+          <!-- Normal / Holiday Toggle -->
+          <div class="duty-nature-toggle" id="dutyNatureToggle">
+            <button class="duty-nature-btn active-normal" id="nature-normal" onclick="setDutyNature('normal')">🟢 Normal</button>
+            <button class="duty-nature-btn" id="nature-holiday" onclick="setDutyNature('holiday')">🔴 Holiday</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:-6px;">
+        <label class="form-label" style="display:none;"></label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+          <div class="duty-type-btn" id="dt-modul" onclick="selectDutyType('modul')"
+            style="padding:11px 6px;border-radius:10px;text-align:center;cursor:pointer;border:2px solid var(--border);background:var(--input-bg);transition:all 0.2s;position:relative;">
+            <div style="width:9px;height:9px;border-radius:50%;background:#1a56db;margin:0 auto 5px;"></div>
+            <div style="font-size:10px;font-weight:800;color:var(--text);">Modul Man</div>
+            <span class="dt-check" style="position:absolute;top:4px;right:5px;width:14px;height:14px;border-radius:50%;background:var(--border);color:transparent;font-size:8px;font-weight:900;display:flex;align-items:center;justify-content:center;">✓</span>
+          </div>
+          <div class="duty-type-btn" id="dt-cbc" onclick="selectDutyType('cbc')"
+            style="padding:11px 6px;border-radius:10px;text-align:center;cursor:pointer;border:2px solid var(--border);background:var(--input-bg);transition:all 0.2s;position:relative;">
+            <div style="width:9px;height:9px;border-radius:50%;background:#7c3aed;margin:0 auto 5px;"></div>
+            <div style="font-size:10px;font-weight:800;color:var(--text);">CBC Filler</div>
+            <span class="dt-check" style="position:absolute;top:4px;right:5px;width:14px;height:14px;border-radius:50%;background:var(--border);color:transparent;font-size:8px;font-weight:900;display:flex;align-items:center;justify-content:center;">✓</span>
+          </div>
+          <div class="duty-type-btn" id="dt-extra" onclick="selectDutyType('extra')"
+            style="padding:11px 6px;border-radius:10px;text-align:center;cursor:pointer;border:2px solid var(--border);background:var(--input-bg);transition:all 0.2s;position:relative;">
+            <div style="width:9px;height:9px;border-radius:50%;background:#d97706;margin:0 auto 5px;"></div>
+            <div style="font-size:10px;font-weight:800;color:var(--text);">Extra Others</div>
+            <span class="dt-check" style="position:absolute;top:4px;right:5px;width:14px;height:14px;border-radius:50%;background:var(--border);color:transparent;font-size:8px;font-weight:900;display:flex;align-items:center;justify-content:center;">✓</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Module Number (multi-chip input) -->
+      <div class="form-group" style="margin-bottom:10px;">
+        <label class="form-label" style="font-size:11px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:5px;display:block;">
+          Module Number
+          <span style="font-size:9px;font-weight:600;color:var(--text-secondary);text-transform:lowercase;letter-spacing:0;opacity:0.75;margin-left:4px;">(optional · একাধিক যোগ করা যাবে)</span>
+        </label>
+        <!-- Chip wrap + inline text input -->
+        <div id="moduleChipsWrap" style="display:flex;flex-wrap:wrap;gap:5px;min-height:40px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;padding:6px 8px;align-items:center;transition:border-color 0.2s;cursor:text;" onclick="document.getElementById('otModuleInput').focus()">
+          <!-- chips injected here by JS -->
+          <input id="otModuleInput" type="text" inputmode="decimal" placeholder="e.g. 18-39-40"
+            style="border:none;background:transparent;outline:none;font-size:13px;font-weight:700;color:var(--text);width:130px;min-width:60px;flex-shrink:0;"
+            onkeydown="handleModuleKeydown(event)"
+            onfocus="document.getElementById('moduleChipsWrap').style.borderColor='var(--accent)'"
+            onblur="document.getElementById('moduleChipsWrap').style.borderColor='var(--border)'">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" onclick="addOT()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Overtime Record
+      </button>
+    </div>
+
+    <!-- OT History -->
+    <div class="card">
+      <div class="section-header" style="flex-wrap:wrap;gap:8px;">
+        <div class="section-title">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Overtime History
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+            <span style="font-size:8px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.8px;opacity:0.75;line-height:1;">Select Month</span>
+            <button id="otMonthToggleBtn" class="ot-month-toggle-btn" onclick="toggleOTMonthFilter()">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/></svg>
+              <span id="otMonthBtnLabel">All Months</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="clearAllOT()">Clear All</button>
+        </div>
+      </div>
+
+      <!-- Month filter dropdown -->
+      <div id="otMonthDropdown" class="ot-month-dropdown">
+        <div class="ot-month-grid">
+          <button class="ot-month-chip" onclick="setOTMonth('January')">Jan</button>
+          <button class="ot-month-chip" onclick="setOTMonth('February')">Feb</button>
+          <button class="ot-month-chip" onclick="setOTMonth('March')">Mar</button>
+          <button class="ot-month-chip" onclick="setOTMonth('April')">Apr</button>
+          <button class="ot-month-chip" onclick="setOTMonth('May')">May</button>
+          <button class="ot-month-chip" onclick="setOTMonth('June')">Jun</button>
+          <button class="ot-month-chip" onclick="setOTMonth('July')">Jul</button>
+          <button class="ot-month-chip" onclick="setOTMonth('August')">Aug</button>
+          <button class="ot-month-chip" onclick="setOTMonth('September')">Sep</button>
+          <button class="ot-month-chip" onclick="setOTMonth('October')">Oct</button>
+          <button class="ot-month-chip" onclick="setOTMonth('November')">Nov</button>
+          <button class="ot-month-chip" onclick="setOTMonth('December')">Dec</button>
+          <button class="ot-month-chip clear-chip" onclick="clearOTMonth()">✕ Show All Months</button>
+        </div>
+      </div>
+
+      <!-- Duty Filter Buttons -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
+        <button id="filter-cbc" onclick="setOTFilter('cbc')"
+          style="padding:10px 4px;border-radius:10px;border:2px solid #ede9fe;background:#ede9fe;color:#7c3aed;font-size:11px;font-weight:800;cursor:pointer;transition:all 0.2s;display:flex;flex-direction:column;align-items:center;gap:3px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#7c3aed;display:inline-block;"></span>
+          CBC Filler
+          <span id="count-cbc" style="font-size:10px;font-weight:900;opacity:0.85;">0 টা</span>
+        </button>
+        <button id="filter-modul" onclick="setOTFilter('modul')"
+          style="padding:10px 4px;border-radius:10px;border:2px solid #dbeafe;background:#dbeafe;color:#1a56db;font-size:11px;font-weight:800;cursor:pointer;transition:all 0.2s;display:flex;flex-direction:column;align-items:center;gap:3px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#1a56db;display:inline-block;"></span>
+          Modul Man
+          <span id="count-modul" style="font-size:10px;font-weight:900;opacity:0.85;">0 টা</span>
+        </button>
+        <button id="filter-extra" onclick="setOTFilter('extra')"
+          style="padding:10px 4px;border-radius:10px;border:2px solid #fef3c7;background:#fef3c7;color:#d97706;font-size:11px;font-weight:800;cursor:pointer;transition:all 0.2s;display:flex;flex-direction:column;align-items:center;gap:3px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#d97706;display:inline-block;"></span>
+          Extra Others
+          <span id="count-extra" style="font-size:10px;font-weight:900;opacity:0.85;">0 টা</span>
+        </button>
+      </div>
+
+      <div id="otHist"></div>
+    </div>
+
+    <!-- ======== DUTY CALCULATOR ======== -->
+
+  </div>
+</div>
+
+<!-- ======== DATA BACKUP / RESTORE PAGE ======== -->
+<div id="dataio" class="page">
+  <div class="topbar">
+    <button class="icon-btn" onclick="showPage('home')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="topbar-title">Backup & Restore</span>
+  </div>
+
+  <div class="page-content">
+
+    <!-- Google Account / Cloud Sync Card -->
+    <div class="card" id="cloudCard">
+      <div class="card-title">☁️ Google Account — Cloud Sync</div>
+      <div id="cloudOut">
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;line-height:1.6;">
+          Google দিয়ে লগইন করলে আপনার সব Leave, Overtime ও Employee data ক্লাউডে সেভ থাকবে। নতুন ফোনে বা পুনরায় install করে একই Google অ্যাকাউন্টে ঢুকলেই সব ফিরে পাবেন।
+        </p>
+        <button id="gLoginBtn" class="btn" onclick="cloudLogin()" style="width:100%;padding:15px;background:#fff;color:#1f2937;border:1.5px solid #d1d5db;border-radius:14px;font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;">
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.1 7-17.6z"/><path fill="#FBBC05" d="M10.5 28.7a14.5 14.5 0 0 1 0-9.4l-7.9-6.1a24 24 0 0 0 0 21.6l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.8 2.3-8.3 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+          Google দিয়ে লগইন করুন
+        </button>
+      </div>
+      <div id="cloudIn" style="display:none;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <img id="cloudPhoto" alt="" style="width:46px;height:46px;border-radius:50%;object-fit:cover;background:var(--border);" referrerpolicy="no-referrer">
+          <div style="min-width:0;">
+            <div id="cloudName" style="font-size:14px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+            <div id="cloudEmail" style="font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+          </div>
+        </div>
+        <div id="cloudStatus" style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:12px;">⏳ সিঙ্ক হচ্ছে...</div>
+        <div style="display:flex;gap:10px;">
+          <button class="btn" onclick="cloudSyncNow()" style="flex:1;padding:12px;background:#1a56db;color:#fff;border:none;border-radius:12px;font-size:13px;font-weight:800;cursor:pointer;">🔄 এখনই সিঙ্ক</button>
+          <button class="btn" onclick="cloudLogout()" style="flex:1;padding:12px;background:transparent;color:var(--text);border:1.5px solid var(--border);border-radius:12px;font-size:13px;font-weight:800;cursor:pointer;">লগআউট</button>
+        </div>
+      </div>
+      <div id="cloudMsg" style="display:none;font-size:12px;font-weight:700;margin-top:10px;line-height:1.5;"></div>
+    </div>
+
+    <!-- Info Card -->
+    <div class="card" style="background:linear-gradient(135deg,#fdf2f8,#fce7f3);border-color:#f9a8d4;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:46px;height:46px;background:#be185d;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#be185d;margin-bottom:3px;">কীভাবে কাজ করে?</div>
+          <div style="font-size:12px;color:#9d174d;line-height:1.6;">"Backup Copy" বাটনে চাপলে সব data clipboard-এ copy হবে। নতুন ফোনে বা পুনরায় install করলে সেই copied text টি Restore বক্সে paste করুন।</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Copy / Backup Card -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Backup — Data Copy করুন
+      </div>
+      <div id="lastBackupInfo" style="font-size:11px;font-weight:700;color:var(--text-secondary);margin:-6px 0 14px;display:flex;align-items:center;gap:5px;"></div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;line-height:1.6;">
+        নিচের বাটনে চাপুন — সব Leave, Overtime ও Employee data clipboard-এ copy হবে। Notepad বা যেকোনো জায়গায় paste করে সেভ করুন।
+      </p>
+      <!-- BUG FIX 1: Removed invalid 'active' HTML attribute (was stray, not a valid button attribute) -->
+      <button id="copyBackupBtn" class="btn" onclick="copyBackup()" style="width:100%;padding:16px;background:linear-gradient(135deg,#be185d,#9d174d);color:white;border:none;border-radius:14px;font-size:15px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 4px 18px rgba(190,24,93,0.3);box-sizing:border-box;transition:opacity 0.2s,transform 0.15s;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        📋 Backup Copy করুন
+      </button>
+      <div id="copyStatus" style="display:none;padding:12px 14px;border-radius:10px;font-size:13px;font-weight:700;margin-top:10px;"></div>
+    </div>
+
+    <!-- Restore Card -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Restore — Data ফিরিয়ে আনুন
+      </div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.6;">
+        আগে copy করা backup text টি নিচে paste করুন।
+      </p>
+
+      <textarea id="pasteImportBox"
+        placeholder="📋 এখানে copied backup text টি paste করুন..."
+        style="
+          width:100%; min-height:88px;
+          background:var(--input-bg);
+          border:1.5px dashed var(--border);
+          border-radius:12px;
+          padding:12px 14px;
+          font-size:12px;
+          color:var(--text);
+          resize:vertical;
+          outline:none;
+          font-family:monospace;
+          line-height:1.5;
+          transition:border-color 0.2s;
+          box-sizing:border-box;
+        "
+        oninput="onPasteBoxInput(this)"
+        onfocus="this.style.borderColor='var(--accent)';this.style.borderStyle='solid';"
+        onblur="this.style.borderColor='var(--border)';this.style.borderStyle='dashed';"
+      ></textarea>
+
+      <button id="pasteImportBtn" onclick="importFromPaste()" style="
+        display:none;
+        width:100%; margin-top:10px;
+        padding:15px;
+        background:linear-gradient(135deg,#7c3aed,#6d28d9);
+        color:white; border:none; border-radius:12px;
+        font-size:14px; font-weight:900;
+        cursor:pointer;
+        box-shadow:0 4px 16px rgba(124,58,237,0.3);
+        box-sizing:border-box;
+      ">
+        <span style="display:flex;align-items:center;justify-content:center;gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Paste থেকে Restore করুন
+        </span>
+      </button>
+      <div id="pasteImportStatus" style="display:none;padding:12px 14px;border-radius:10px;font-size:13px;font-weight:700;margin-top:8px;"></div>
+    </div>
+
+    <!-- Warning -->
+    <div style="background:var(--warning-light);border:1px solid #fbbf24;border-radius:12px;padding:14px 16px;display:flex;gap:10px;align-items:flex-start;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" style="flex-shrink:0;margin-top:1px;">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <div style="font-size:12px;color:var(--warning);font-weight:600;line-height:1.6;">
+        <strong>সতর্কতা:</strong> Restore করলে বর্তমান সব data মুছে গিয়ে backup এর data আসবে। Restore করার আগে প্রয়োজনে আগে Backup Copy করে নিন।
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ======== CONTACT PAGE (FINAL PRO) ======== -->
+<div id="contact" class="page">
+  <div class="topbar">
+    <button class="icon-btn" onclick="showPage('home')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <span class="topbar-title">Contact Me</span>
+  </div>
+
+  <div class="page-content">
+
+    <div class="contact-hero">
+      <div class="contact-icon-wrap" style="position:relative; overflow:hidden; cursor:default;">
+        <div style="width:72px;height:72px;border-radius:18px;background:linear-gradient(135deg,#0a0f2c 0%,#0d1f6b 45%,#1a0a4a 100%);border:2px solid rgba(0,200,255,0.45);box-shadow:0 0 18px rgba(0,180,255,0.3),inset 0 0 12px rgba(0,100,255,0.15);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,220,255,0.8),transparent);animation:cyberScan 2.4s linear infinite;"></div>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L4 5.5V11c0 4.8 3.4 9.1 8 10.5C17.6 20.1 21 15.8 21 11V5.5L12 2Z" fill="rgba(0,160,255,0.18)" stroke="rgba(0,210,255,0.9)" stroke-width="1.4" stroke-linejoin="round"/>
+            <line x1="9"  y1="10" x2="12" y2="10" stroke="rgba(0,230,255,0.75)" stroke-width="1" stroke-linecap="round"/>
+            <line x1="12" y1="10" x2="12" y2="14" stroke="rgba(0,230,255,0.75)" stroke-width="1" stroke-linecap="round"/>
+            <line x1="12" y1="14" x2="15" y2="14" stroke="rgba(0,230,255,0.75)" stroke-width="1" stroke-linecap="round"/>
+            <circle cx="9"  cy="10" r="1"   fill="rgba(0,255,220,0.95)"/>
+            <circle cx="15" cy="14" r="1"   fill="rgba(0,255,220,0.95)"/>
+            <circle cx="12" cy="12" r="1.4" fill="#00cfff"/>
+            <polyline points="6,4.5 4,4.5 4,7"   stroke="rgba(0,200,255,0.5)" stroke-width="1" fill="none" stroke-linecap="round"/>
+            <polyline points="18,4.5 20,4.5 20,7" stroke="rgba(0,200,255,0.5)" stroke-width="1" fill="none" stroke-linecap="round"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="admin-icon-wrap">
+        <div class="admin-icon-ring">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 17L5 7L9.5 11.5L12 5L14.5 11.5L19 7L21 17H3Z" fill="#FFD700" stroke="#FFA500" stroke-width="1.2" stroke-linejoin="round"/>
+            <rect x="3" y="17" width="18" height="2.5" rx="1.25" fill="#FFA500"/>
+          </svg>
+        </div>
+      </div>
+      <div class="admin-badge">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <polyline points="9 12 11 14 15 10"/>
+        </svg>
+        ⚡ Admin
+      </div>
+      <div class="contact-name">Rakib Hossain</div>
+      <div class="contact-desc">
+        Student | Passionate Tech Learner 💻 <br>
+        I love building useful apps & learning new tech 🚀
+      </div>
+
+      <div style="display:flex;gap:10px;width:100%;justify-content:center;margin-bottom:10px;">
+        <a href="https://t.me/rakiib" target="_blank" rel="noopener noreferrer" class="tg-btn" style="flex:1;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+          </svg>
+          Telegram
+        </a>
+        <a href="https://wa.me/8801571230741" target="_blank" rel="noopener noreferrer" class="tg-btn" style="flex:1;background:#25D366;color:white;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z"/>
+          </svg>
+          WhatsApp
+        </a>
+      </div>
+
+      <a href="https://www.facebook.com/share/1DvhenmHEt/" target="_blank" rel="noopener noreferrer"
+        class="tg-btn"
+        style="background:#1877F2;color:white;width:100%;justify-content:center;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+        </svg>
+        Facebook
+      </a>
+    </div>
+
+
+
+  </div>
+</div>
+<!-- ======== MODALS ======== -->
+<!-- Year Picker Modal -->
+<div id="yearPickerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9998;align-items:center;justify-content:center;" onclick="if(event.target===this)closeYearPicker();">
+  <div style="background:var(--surface);border-radius:18px;padding:22px 18px;margin:20px;max-width:320px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+    <div style="font-size:13px;font-weight:800;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">📅 সাল বেছে নিন</div>
+    <div id="yearList" style="margin-bottom:14px;max-height:260px;overflow-y:auto;overscroll-behavior-y:contain;"></div>
+    <button onclick="showNewYearConfirm()" style="width:100%;padding:13px;background:linear-gradient(135deg,#059669,#10b981);color:white;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;">🌟 নতুন সাল শুরু করুন</button>
+    <button onclick="closeYearPicker()" style="width:100%;padding:11px;background:transparent;border:1.5px solid var(--border);color:var(--text-secondary);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px;">বাতিল</button>
+  </div>
+</div>
+<div id="confirmModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9998;align-items:center;justify-content:center;" onclick="if(event.target===this)confirmCancel();">
+  <div style="background:var(--surface);border-radius:18px;padding:24px 20px;margin:20px;max-width:320px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+    <div id="confirmMsg" style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:20px;line-height:1.5;text-align:center;white-space:pre-line;"></div>
+    <div style="display:flex;gap:10px;">
+      <button onclick="confirmCancel()" style="flex:1;padding:13px;border:1.5px solid var(--border);background:transparent;color:var(--text);border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">বাতিল</button>
+      <button onclick="confirmOk()" style="flex:1;padding:13px;background:linear-gradient(135deg,#dc2626,#ef4444);color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">হ্যাঁ, নিশ্চিত</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ========== DATA SAFETY LAYER (v1.7) ==========
+// Protects saved data from silent loss. Runs BEFORE the app boots.
+//  1. Mirrors every lc_* key into a second copy (localStorage 'bk_snap' + IndexedDB).
+//  2. At startup, any lc_* key that is missing or corrupt is restored from that copy.
+//  3. If localStorage was wiped completely but IndexedDB survived, data is restored from it.
+//  4. Asks the browser/WebView for persistent storage so it is not evicted.
+//  5. Reminds the user to take a clipboard backup when none exists / it is old.
+// Deliberate changes (Clear All, Reset, Restore) go through setItem/removeItem too,
+// so the copy always follows them — only UNEXPECTED loss is recovered.
+(function () {
+  var SNAP = 'bk_snap', IDB_NAME = 'lc_safety', IDB_STORE = 's';
+  var DATA_KEY = /^lc_(emp|monthly|ot|leave)/;
+  var JSON_KEY = /^lc_(emp|monthly|ot|leave|duty_rates)/;
+  var _set, _rem, _get;
+  try {
+    _set = Storage.prototype.setItem;
+    _rem = Storage.prototype.removeItem;
+    _get = Storage.prototype.getItem;
+  } catch (e) { return; }
+
+  function isAppKey(k) { return typeof k === 'string' && k.indexOf('lc_') === 0; }
+  function validJSON(v) { try { JSON.parse(v); return true; } catch (e) { return false; } }
+
+  function liveData() {
+    var d = {};
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (isAppKey(k)) d[k] = _get.call(localStorage, k);
+    }
+    return d;
+  }
+  function hasRealData(d) {
+    return Object.keys(d).some(function (k) { return DATA_KEY.test(k); });
+  }
+
+  // ---- IndexedDB (second, independent store) ----
+  function idbOpen(cb) {
+    try {
+      var rq = indexedDB.open(IDB_NAME, 1);
+      rq.onupgradeneeded = function () { rq.result.createObjectStore(IDB_STORE); };
+      rq.onsuccess = function () { cb(rq.result); };
+      rq.onerror = function () { cb(null); };
+    } catch (e) { cb(null); }
+  }
+  function idbPut(str) {
+    idbOpen(function (db) {
+      if (!db) return;
+      try { db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(str, 'snap'); } catch (e) {}
+    });
+  }
+  function idbGet(cb) {
+    idbOpen(function (db) {
+      if (!db) return cb(null);
+      try {
+        var g = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get('snap');
+        g.onsuccess = function () { cb(g.result || null); };
+        g.onerror = function () { cb(null); };
+      } catch (e) { cb(null); }
+    });
+  }
+
+  // ---- Snapshot writer ----
+  var _idbTimer = null;
+  function snapNow() {
+    try {
+      var str = JSON.stringify({ t: Date.now(), d: liveData() });
+      try { _set.call(localStorage, SNAP, str); } catch (e) { /* quota — never break the app */ }
+      clearTimeout(_idbTimer);
+      _idbTimer = setTimeout(function () { idbPut(str); }, 400);
+    } catch (e) {}
+  }
+
+  // ---- Restore missing / corrupt keys from a snapshot ----
+  function restoreFrom(snapObj) {
+    var n = 0;
+    if (!snapObj || typeof snapObj !== 'object') return 0;
+    Object.keys(snapObj).forEach(function (k) {
+      if (!isAppKey(k)) return;
+      var live = _get.call(localStorage, k);
+      var bad = (live === null) || (JSON_KEY.test(k) && !validJSON(live));
+      if (bad && typeof snapObj[k] === 'string') {
+        try { _set.call(localStorage, k, snapObj[k]); n++; } catch (e) {}
+      }
+    });
+    return n;
+  }
+
+  // ---- Patch storage so every lc_* change is mirrored ----
+  Storage.prototype.setItem = function (k, v) {
+    _set.call(this, k, v);               // may throw (quota) — app's own try/catch still works
+    if (this === localStorage && isAppKey(k)) snapNow();
+  };
+  Storage.prototype.removeItem = function (k) {
+    _rem.call(this, k);
+    if (this === localStorage && isAppKey(k)) snapNow();
+  };
+
+  // ---- 1) Synchronous repair at startup (before init()) ----
+  var repaired = 0, hadLocalSnap = false;
+  try {
+    var raw = _get.call(localStorage, SNAP);
+    if (raw) {
+      hadLocalSnap = true;
+      var parsed = JSON.parse(raw);
+      repaired = restoreFrom(parsed && parsed.d);
+    }
+  } catch (e) {}
+
+  // ---- 2) Ask for persistent storage ----
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+  // ---- 3) Async fallback: localStorage wiped, IndexedDB copy survived ----
+  window.addEventListener('load', function () {
+    if (!hasRealData(liveData())) {
+      idbGet(function (str) {
+        try {
+          if (!str) return;
+          var p = JSON.parse(str);
+          if (!p || !hasRealData(p.d || {})) return;
+          if (hasRealData(liveData())) return;      // user already entered new data — don't touch
+          if (restoreFrom(p.d) > 0) {
+            snapNow();
+            if (typeof reloadAllData === 'function') reloadAllData();
+            setTimeout(function () {
+              try { if (typeof empEditMode !== 'undefined' && empEditMode) toggleEmpEdit(); } catch (e) {}
+              toast('আপনার সেভ করা ডেটা ফিরিয়ে আনা হয়েছে ✅', null, 4500);
+            }, 700);
+          }
+        } catch (e) {}
+      });
+    } else {
+      // keep the second copy fresh even if nothing was written this session
+      snapNow();
+    }
+
+    // ---- 4) Local-restore notice + backup reminder ----
+    setTimeout(function () {
+      try {
+        if (repaired > 0) toast('কিছু হারানো ডেটা স্বয়ংক্রিয়ভাবে ফিরিয়ে আনা হয়েছে ✅', null, 4500);
+      } catch (e) {}
+    }, 900);
+    setTimeout(function () {
+      try {
+        if (!hasRealData(liveData())) return;
+        var ts = _get.call(localStorage, 'lastBackupTs');
+        var old = !ts || (Date.now() - parseInt(ts, 10)) > 30 * 86400000;
+        if (old) toast('⚠️ ডেটা সুরক্ষায় Backup পেজ থেকে ব্যাকাপ কপি করে রাখুন', null, 5500);
+      } catch (e) {}
+    }, 5500);
+  });
+})();
+
+// ========== STATE ==========
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+// Yearly leave limits used by the Leave Usage breakdown + over-limit warning (below)
+const LEAVE_LIMITS = { annual: 17, casual: 10, medical: 14 };
+let curShifts   = new Set();
+let curRunnings = new Set();
+let curDutyNature = 'normal'; // 'normal' or 'holiday'
+// Track selection ORDER for numbered badges
+let shiftOrder   = [];
+let runningOrder = [];
+
+function getTotal() {
+  try {
+    const d = JSON.parse(localStorage.getItem('lc_emp') || '{}');
+    const t = parseFloat(d.totalLeave);
+    return (!isNaN(t) && t > 0) ? t : 41;
+  } catch(e) { return 41; }
+}
+
+// ========== NAVIGATION ==========
+let navStack = ['splash'];
+
+function goHome() {
+  // Replace splash in stack with home
+  if (navStack[navStack.length - 1] === 'splash') navStack[navStack.length - 1] = 'home';
+  showPage('home');
+  // Push a SENTINEL entry below so the very first back press fires popstate
+  // instead of exiting the app (Android needs ≥2 history entries for this).
+  safePush('home'); // entry #2 — popstate target
+}
+
+function showPage(id, pushState = true) {
+  // Remove stale ripple elements before switching pages
+  document.querySelectorAll('.ripple').forEach(r => r.remove());
+
+  // BUG FIX 3: Close OT month dropdown when navigating away from overtime page
+  //            (Fix 4 — prevents dropdown remaining open on return)
+  const otDropdown = document.getElementById('otMonthDropdown');
+  const otToggleBtn = document.getElementById('otMonthToggleBtn');
+  if (otDropdown && otDropdown.classList.contains('open')) {
+    otDropdown.classList.remove('open');
+    if (otToggleBtn) otToggleBtn.classList.remove('active');
+  }
+
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+
+  // BUG FIX 3 (cont): Reset scroll position on every page visit so users
+  //                   never land on a stale scroll position when re-entering a page.
+  const pc = document.getElementById(id)?.querySelector('.page-content');
+  if (pc) pc.scrollTop = 0;
+
+  if (id === 'leave')    { buildMonthGrid(); renderLeaveHist(); updateLeaveStats(); }
+  if (id === 'overtime') {
+    renderOTHist(); updateOTStats(); calcDutyEarnings();
+    // Auto-fill today's month & date every time the overtime page opens
+    setOTToday();
+  }
+  if (id === 'dataio') {
+    updateLastBackupDisplay();
+    autoDetectClipboardBackup();
+  }
+
+  if (pushState) {
+    // Only push history & navStack if navigating to a different page
+    if (navStack[navStack.length - 1] !== id) {
+      navStack.push(id);
+      if (navStack.length > 20) navStack = navStack.slice(-10);
+      safePush(id); // sentinel
+      safePush(id); // current — back button pops this, fires popstate
+    }
+  }
+}
+
+// ── BACK BUTTON FIX ─────────────────────────────────────────────────────────
+// Always use History API regardless of protocol (file://, content://, https://).
+// hopweb / Android WebView supports pushState on all protocols.
+// Strategy: keep one "sentinel" entry below current so back always fires popstate
+// instead of exiting the app. When on home, re-push so next back stays in app.
+
+function safePush(page) {
+  try { history.pushState({ page: page }, ''); } catch(e) {}
+}
+function safeReplace(page) {
+  try { history.replaceState({ page: page }, ''); } catch(e) {}
+}
+
+// Hardware / browser back button
+window.addEventListener('popstate', function(e) {
+  const current = navStack[navStack.length - 1];
+
+  // Already at home or splash → block exit: push TWO entries so the
+  // next back press also fires popstate (Android exits if stack hits 0).
+  if (!current || current === 'splash' || current === 'home' || navStack.length <= 1) {
+    safePush(current || 'home'); // sentinel
+    safePush(current || 'home'); // current
+    return;
+  }
+
+  // Normal back: pop stack and go to previous page
+  navStack.pop();
+  const prev = navStack[navStack.length - 1];
+  const safePrev = (!prev || prev === 'splash') ? 'home' : prev;
+  if (navStack[navStack.length - 1] !== safePrev) navStack[navStack.length - 1] = safePrev;
+
+  showPage(safePrev, false);
+  // Keep two entries so the next back press also fires popstate
+  safePush(safePrev); // sentinel
+  safePush(safePrev); // current — user will pop this on next back
+});
+// ────────────────────────────────────────────────────────────────────────────
+
+// Set initial history entry so back button has something to intercept
+safeReplace('splash');
+
+// ========== THEME ==========
+function setTheme(t) {
+  document.body.setAttribute('data-theme', t);
+  localStorage.setItem('lc_theme', t);
+  ['light','dark','glass'].forEach(name => {
+    const btn = document.getElementById('btn-theme-' + name);
+    if (!btn) return;
+    if (name === t) {
+      btn.style.background = 'var(--accent)';
+      btn.style.color = 'white';
+      btn.style.borderColor = 'var(--accent)';
+    } else {
+      btn.style.background = 'var(--input-bg)';
+      btn.style.color = 'var(--text)';
+      btn.style.borderColor = 'var(--border)';
+    }
+  });
+  // BUG FIX 5: Re-render OT history when theme changes.
+  // renderOTHist() reads isDark at render-time to set night-shift chip colours.
+  // Without this call, chip colours stay stale until the user manually navigates away and back.
+  const otHistEl = document.getElementById('otHist');
+  if (otHistEl) renderOTHist();
+}
+function loadTheme() {
+  const t = localStorage.getItem('lc_theme') || 'light';
+  setTheme(t);
+}
+// keep old toggleTheme for backward compat (unused but safe)
+function toggleTheme() { setTheme(document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); }
+
+// ========== TOAST ==========
+let _toastTimer = null;
+function toast(msg, icon, duration) {
+  const el = document.getElementById('toast');
+  el.textContent = (icon ? icon + ' ' : '') + msg;
+  el.classList.add('show');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.classList.remove('show'); _toastTimer = null; }, duration || 2600);
+}
+
+// ========== EMPLOYEE INFO ==========
+const EMP_FIELDS = ['companyName', 'empName', 'cardNo', 'deptName', 'totalLeave'];
+let empEditMode = false;
+
+function toggleEmpEdit() {
+  empEditMode = !empEditMode;
+  const btn = document.getElementById('empEditBtn');
+
+  EMP_FIELDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (empEditMode) {
+      el.removeAttribute('readonly');
+      el.style.pointerEvents = '';
+      el.style.borderColor = '';
+    } else {
+      el.setAttribute('readonly', '');
+    }
+  });
+
+  if (empEditMode) {
+    btn.className = 'emp-edit-btn save-mode';
+    btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg> Save`;
+    // Focus on first field (desktop only — mobile auto-focus triggers keyboard popup)
+    if (!('ontouchstart' in window)) document.getElementById('companyName').focus();
+  } else {
+    saveEmpInfo();
+    updateLeaveStats();
+    btn.className = 'emp-edit-btn edit-mode';
+    btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit`;
+    toast('Employee তথ্য সেভ হয়েছে ✅');
+  }
+}
+
+function saveEmpInfo() {
+  try {
+    localStorage.setItem('lc_emp', JSON.stringify({
+      company:    document.getElementById('companyName').value,
+      name:       document.getElementById('empName').value,
+      card:       document.getElementById('cardNo').value,
+      dept:       document.getElementById('deptName').value,
+      totalLeave: document.getElementById('totalLeave').value
+    }));
+    updateGreeting();
+  } catch(e) { toast('Employee info সেভ হয়নি! Storage ভরা।'); }
+}
+function loadEmpInfo() {
+  try {
+    const d = JSON.parse(localStorage.getItem('lc_emp') || '{}');
+    if (d.company)    document.getElementById('companyName').value = d.company;
+    if (d.name)       document.getElementById('empName').value     = d.name;
+    if (d.card)       document.getElementById('cardNo').value      = d.card;
+    if (d.dept)       document.getElementById('deptName').value    = d.dept;
+    if (d.totalLeave) document.getElementById('totalLeave').value  = d.totalLeave;
+
+    updateGreeting();
+
+    // If no info saved yet, auto-open edit mode so user can fill in
+    const hasData = d.company || d.name || d.card || d.dept || d.totalLeave;
+    if (!hasData) {
+      // Small delay so page renders first
+      setTimeout(() => { if (!empEditMode) toggleEmpEdit(); }, 400);
+    }
+  } catch(e) {
+    console.warn('Employee info corrupted, skipping load.', e);
+  }
+}
+
+function updateGreeting() {
+  const greetEl = document.getElementById('homeGreeting');
+  if (!greetEl) return;
+  const name = document.getElementById('empName')?.value?.trim();
+  greetEl.textContent = name ? 'Hello, ' + name : 'Hello, Welcome Back';
+}
+
+// NOTE: Individual leave records (lc_leave_*) are no longer used.
+// Leave tracking is done entirely via the monthly grid (lc_monthly_*).
+// clearAllLeave() still removes lc_leave_* for full cleanup of any old data.
+
+
+
+function clearAllLeave() {
+  showConfirm('সব Leave ডেটা মুছে ফেলবেন?', function() {
+    const y = getActiveYear();
+    localStorage.removeItem('lc_leave_' + y);
+    localStorage.removeItem('lc_monthly_' + y);
+    buildMonthGrid();
+    updateLeaveStats();
+    renderLeaveHist();
+    toast('সব leave ডেটা মুছে গেছে');
+  });
+}
+
+function updateLeaveStats() {
+  // Monthly tracker totals
+  const monthly = (() => {
+    try { return JSON.parse(localStorage.getItem('lc_monthly_' + getActiveYear()) || '{}'); }
+    catch(e) { return {}; }
+  })();
+  let annual = 0, casual = 0, medical = 0;
+  Object.values(monthly).forEach(function(d) {
+    annual  += (d.annual  || 0);
+    casual  += (d.casual  || 0);
+    medical += (d.medical || 0);
+  });
+
+  const used   = annual + casual + medical;
+  const TOTAL  = getTotal();
+  const remain = Math.max(0, TOTAL - used);
+  const pct    = TOTAL > 0 ? Math.min(100, Math.round((used / TOTAL) * 100)) : 0;
+
+  document.getElementById('statTotal').textContent  = TOTAL;
+  document.getElementById('statUsed').textContent   = fmtNum(used);
+  document.getElementById('statRemain').textContent = fmtNum(remain);
+  document.getElementById('progFill').style.width   = pct + '%';
+  document.getElementById('progPct').textContent    = pct + '%';
+
+  document.getElementById('bdAnnual').textContent  = fmtNum(annual)  + ' days';
+  document.getElementById('bdCasual').textContent  = fmtNum(casual)  + ' days';
+  document.getElementById('bdMedical').textContent = fmtNum(medical) + ' days';
+
+  document.getElementById('bdAnnualLimit').textContent  = LEAVE_LIMITS.annual  + ' days';
+  document.getElementById('bdCasualLimit').textContent  = LEAVE_LIMITS.casual  + ' days';
+  document.getElementById('bdMedicalLimit').textContent = LEAVE_LIMITS.medical + ' days';
+  renderLeaveLimitWarnings(annual, casual, medical);
+}
+
+// Shows a red warning line for every leave type whose used days exceed its yearly limit
+// (LEAVE_LIMITS above); hides the whole box when nothing is over.
+function renderLeaveLimitWarnings(annual, casual, medical) {
+  const box = document.getElementById('leaveLimitWarning');
+  if (!box) return;
+  const rows = [
+    ['Annual',  annual,  LEAVE_LIMITS.annual],
+    ['Casual',  casual,  LEAVE_LIMITS.casual],
+    ['Medical', medical, LEAVE_LIMITS.medical]
+  ];
+  const lines = [];
+  rows.forEach(function(r) {
+    const over = r[1] - r[2];
+    if (over > 0) {
+      lines.push('⚠️ Warning: ' + r[0] + ' Leave limit exceeded by ' + fmtNum(over) + (over === 1 ? ' day.' : ' days.'));
+    }
+  });
+  if (!lines.length) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+  box.innerHTML = lines.map(function(l) { return '<div class="leave-limit-warning-line">' + l + '</div>'; }).join('');
+  box.style.display = 'block';
+}
+
+function renderLeaveHist() {
+  const el = document.getElementById('leaveHist');
+  const activeYear = getActiveYear();
+
+  let monthly = {};
+  try { monthly = JSON.parse(localStorage.getItem('lc_monthly_' + activeYear) || '{}'); }
+  catch(e) { monthly = {}; }
+  const activeMonths = MONTHS.filter(m => {
+    const d = monthly[m];
+    return d && (d.annual || d.casual || d.medical);
+  });
+
+  if (!activeMonths.length) {
+    el.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      <p>No leave records yet. Add your first one above.</p>
+    </div>`; return;
+  }
+
+  let html = `<div class="year-section"><div class="year-badge">${activeYear}</div>`;
+  activeMonths.forEach(m => {
+    const d = monthly[m];
+    const annual  = d.annual  || 0;
+    const casual  = d.casual  || 0;
+    const medical = d.medical || 0;
+    const total   = annual + casual + medical;
+    html += `
+      <div class="hist-item">
+        <div class="hist-icon" style="background:#dbeafe;color:#1e40af;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+        </div>
+        <div class="hist-info">
+          <div class="hist-main">${m}</div>
+          <div class="hist-sub">
+            ${annual  ? `<span class="chip chip-annual">A:${fmtNum(annual)}</span>`  : ''}
+            ${casual  ? `<span class="chip chip-casual">C:${fmtNum(casual)}</span>`  : ''}
+            ${medical ? `<span class="chip chip-medical">M:${fmtNum(medical)}</span>` : ''}
+          </div>
+        </div>
+        <div class="hist-value">${fmtNum(total)}d</div>
+      </div>`;
+  });
+  html += `</div>`;
+  el.innerHTML = html;
+}
+
+// ========== MONTHLY TRACKER ==========
+function buildMonthGrid() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('lc_monthly_' + getActiveYear()) || '{}'); }
+  catch(e) { saved = {}; }
+  document.getElementById('monthGrid').innerHTML = MONTHS.map(m => {
+    const d = saved[m] || {};
+    return `
+    <div class="month-item">
+      <div class="month-name">${m}</div>
+      <div class="month-type-row">
+        <div class="month-type-dot" style="background:#1e40af;"></div>
+        <span class="month-type-label">Annual</span>
+        <input class="month-input annual" id="ml-${m}-annual" type="number" min="0" step="0.5" placeholder="0" value="${d.annual || ''}">
+      </div>
+      <div class="month-type-row">
+        <div class="month-type-dot" style="background:#15803d;"></div>
+        <span class="month-type-label">Casual</span>
+        <input class="month-input casual" id="ml-${m}-casual" type="number" min="0" step="0.5" placeholder="0" value="${d.casual || ''}">
+      </div>
+      <div class="month-type-row">
+        <div class="month-type-dot" style="background:#9d174d;"></div>
+        <span class="month-type-label">Medical</span>
+        <input class="month-input medical" id="ml-${m}-medical" type="number" min="0" step="0.5" placeholder="0" value="${d.medical || ''}">
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function saveMonthly() {
+  const data = {};
+  let hasNegative = false;
+  MONTHS.forEach(m => {
+    const annual  = document.getElementById('ml-' + m + '-annual')?.value;
+    const casual  = document.getElementById('ml-' + m + '-casual')?.value;
+    const medical = document.getElementById('ml-' + m + '-medical')?.value;
+    if (annual || casual || medical) {
+      const a = annual  ? parseFloat(annual)  : 0;
+      const c = casual  ? parseFloat(casual)  : 0;
+      const med = medical ? parseFloat(medical) : 0;
+      if (a < 0 || c < 0 || med < 0) { hasNegative = true; return; }
+      data[m] = { annual: a, casual: c, medical: med };
+    }
+  });
+  if (hasNegative) {
+    toast('নেগেটিভ সংখ্যা দেওয়া যাবে না। সঠিক মান দিন।');
+    return;
+  }
+  try {
+    localStorage.setItem('lc_monthly_' + getActiveYear(), JSON.stringify(data));
+    updateLeaveStats();
+    renderLeaveHist();
+    toast('Monthly ডেটা সেভ হয়েছে ✅');
+  } catch(e) {
+    toast('ডেটা সেভ হয়নি! Storage ভরা আছে। পুরনো data মুছুন।');
+  }
+}
+
+// ========== RESET LEAVE ==========
+function resetLeave() {
+  showConfirm('সব Leave ও Monthly ডেটা Reset করবেন?\n(Employee info অক্ষত থাকবে)', function() {
+    const y = getActiveYear();
+    ['lc_leave_'+y,'lc_monthly_'+y].forEach(k => localStorage.removeItem(k));
+    buildMonthGrid(); updateLeaveStats(); renderLeaveHist();
+    toast('Leave ডেটা reset হয়েছে');
+  });
+}
+
+// ========== DUTY NATURE (Normal / Holiday) ==========
+const HOLIDAY_HOURS = 16;       // Holiday = Double Duty = 16 hours
+let _normalHoursStash = '';     // hours typed for Normal, restored when switching back from Holiday
+function setDutyNature(nature) {
+  const prevNature = curDutyNature;
+  curDutyNature = nature;
+  const hrsEl = document.getElementById('otHours');
+  if (hrsEl) {
+    if (nature === 'holiday') {
+      if (prevNature !== 'holiday') _normalHoursStash = hrsEl.value;
+      hrsEl.value = HOLIDAY_HOURS;
+      hrsEl.readOnly = true;
+      hrsEl.style.opacity = '0.75';
+    } else {
+      if (prevNature === 'holiday') hrsEl.value = _normalHoursStash;
+      hrsEl.readOnly = false;
+      hrsEl.style.opacity = '';
+    }
+  }
+  const nBtn = document.getElementById('nature-normal');
+  const hBtn = document.getElementById('nature-holiday');
+  if (!nBtn || !hBtn) return;
+  nBtn.className = 'duty-nature-btn' + (nature === 'normal' ? ' active-normal' : '');
+  hBtn.className = 'duty-nature-btn' + (nature === 'holiday' ? ' active-holiday' : '');
+}
+
+// ========== SHIFT / RUNNING PICKERS ==========
+function renderShiftBadges() {
+  const labels = { white:'White', yellow:'Yellow', blue:'Blue', green:'Green' };
+  ['white','yellow','blue','green'].forEach(x => {
+    const el = document.getElementById('st-' + x);
+    if (!el) return;
+    const isActive = curShifts.has(x);
+    el.classList.toggle('active', isActive);
+    const old = el.querySelector('.sel-order-badge');
+    if (old) old.remove();
+    el.textContent = labels[x];
+    if (isActive) {
+      const pos = shiftOrder.indexOf(x);
+      if (pos !== -1) {
+        const badge = document.createElement('span');
+        badge.className = 'sel-order-badge';
+        badge.textContent = pos + 1;
+        el.appendChild(badge);
+      }
+    }
+  });
+}
+
+function toggleShift(s) {
+  if (curShifts.has(s)) {
+    if (curShifts.size > 1) {
+      curShifts.delete(s);
+      shiftOrder = shiftOrder.filter(v => v !== s);
+    } else {
+      toast('কমপক্ষে ১টি Shift Type বেছে রাখতে হবে।', '', 2000);
+      return;
+    }
+  } else {
+    curShifts.add(s);
+    shiftOrder.push(s);
+  }
+  renderShiftBadges();
+  autoCalcHours();
+}
+
+function renderRunningBadges() {
+  const labels = { morning:'Morning', evening:'Evening', night:'Night' };
+  ['morning','evening','night'].forEach(x => {
+    const el = document.getElementById('rs-' + x);
+    if (!el) return;
+    const isActive = curRunnings.has(x);
+    el.classList.toggle('active', isActive);
+    const old = el.querySelector('.sel-order-badge');
+    if (old) old.remove();
+    el.textContent = labels[x];
+    if (isActive) {
+      const pos = runningOrder.indexOf(x);
+      if (pos !== -1) {
+        const badge = document.createElement('span');
+        badge.className = 'sel-order-badge';
+        badge.textContent = pos + 1;
+        el.appendChild(badge);
+      }
+    }
+  });
+}
+
+function autoCalcHours() {
+  const el = document.getElementById('otHours');
+  if (!el) return;
+  const current = parseFloat(el.value);
+  // Auto-fill only if field is empty, or current value is a clean multiple of 8 (was auto-filled before)
+  const isAutoFilled = !el.value || (!isNaN(current) && current > 0 && current % 8 === 0);
+  if (isAutoFilled && curRunnings.size > 0) el.value = curRunnings.size * 8;
+}
+function toggleRunning(r) {
+  if (curRunnings.has(r)) {
+    if (curRunnings.size > 1) {
+      curRunnings.delete(r);
+      runningOrder = runningOrder.filter(v => v !== r);
+    } else {
+      toast('কমপক্ষে ১টি Running Shift বেছে রাখতে হবে।', '', 2000);
+      return;
+    }
+  } else {
+    curRunnings.add(r);
+    runningOrder.push(r);
+  }
+  renderRunningBadges();
+  autoCalcHours();
+}
+
+// ========== MODULE NUMBER CHIPS ==========
+let moduleChips = [];
+
+function renderModuleChips() {
+  const wrap = document.getElementById('moduleChipsWrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.mod-chip').forEach(c => c.remove());
+  const inp = document.getElementById('otModuleInput');
+  moduleChips.forEach((num, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'mod-chip';
+    chip.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:var(--accent-light);color:var(--accent);border-radius:20px;padding:3px 9px 3px 7px;font-size:11px;font-weight:800;white-space:nowrap;';
+    // Safe text node — no innerHTML for user content
+    chip.appendChild(document.createTextNode('📦 ' + String(num)));
+    const xBtn = document.createElement('button');
+    xBtn.type = 'button';
+    xBtn.textContent = '×';
+    xBtn.style.cssText = 'border:none;background:none;color:var(--accent);cursor:pointer;padding:0;margin-left:2px;font-size:13px;font-weight:900;line-height:1;opacity:0.7;touch-action:manipulation;';
+    xBtn.addEventListener('click', function(e) { e.stopPropagation(); removeModuleChip(i); });
+    chip.appendChild(xBtn);
+    wrap.insertBefore(chip, inp);
+  });
+}
+
+function addModuleChip() {
+  const inp = document.getElementById('otModuleInput');
+  if (!inp) return;
+  const raw = inp.value.trim();
+  if (raw === '') { inp.focus(); return; }
+  if (moduleChips.length >= 10) { toast('সর্বোচ্চ ১০টি Module Number যোগ করা যাবে।', '', 2000); inp.value = ''; return; }
+  // Save the whole string as one chip (e.g. "18-39-40" is one module code)
+  moduleChips.push(raw);
+  renderModuleChips();
+  inp.value = '';
+  inp.focus();
+}
+
+function removeModuleChip(idx) {
+  moduleChips.splice(idx, 1);
+  renderModuleChips();
+}
+
+function clearModuleChips() {
+  moduleChips = [];
+  renderModuleChips();
+  const inp = document.getElementById('otModuleInput');
+  if (inp) inp.value = '';
+}
+
+function handleModuleKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addModuleChip();
+  }
+}
+
+// ========== OVERTIME RECORDS ==========
+function getOTRecs() {
+  try { return JSON.parse(localStorage.getItem('lc_ot_' + getActiveYear()) || '[]'); }
+  catch(e) { console.warn('OT records corrupted, resetting.', e); return []; }
+}
+function putOTRecs(r) {
+  // BUG FIX v1.5: Returns true on success, false on failure.
+  // Callers can now check the return value and avoid clearing the form
+  // when data couldn't be saved (e.g. storage is full).
+  try {
+    localStorage.setItem('lc_ot_' + getActiveYear(), JSON.stringify(r));
+    return true;
+  } catch(e) {
+    toast('ডেটা সেভ হয়নি! Storage ভরা আছে। পুরনো data মুছুন।');
+    return false;
+  }
+}
+
+let _addOTLock = false;
+function addOT() {
+  if (_addOTLock) return;
+  _addOTLock = true;
+
+  const month = document.getElementById('otMonth').value;
+  const date  = document.getElementById('otDate').value;
+  // Holiday = Double Duty: always exactly 16 hours (never typed/stacked), Normal uses the typed value
+  const hours = (curDutyNature === 'holiday') ? HOLIDAY_HOURS : parseFloat(document.getElementById('otHours').value);
+
+  if (!month || !date || isNaN(hours) || hours <= 0) {
+    _addOTLock = false;
+    toast('সব field সঠিকভাবে পূরণ করুন'); return;
+  }
+  if (hours > 24) {
+    _addOTLock = false;
+    toast('Hours ২৪-এর বেশি হতে পারবে না।'); return;
+  }
+
+  // Validate: date must belong to selected month
+  const selectedDate = new Date(date + 'T00:00:00');
+  const dateMonthName = MONTHS[selectedDate.getMonth()];
+  if (dateMonthName !== month) {
+    _addOTLock = false;
+    toast(`⚠️ তারিখ ও মাস মিলছে না! Date-এ "${dateMonthName}" কিন্তু Month "${month}" বেছেছেন।`, '', 3800);
+    return;
+  }
+
+  // BUG FIX v1.3: Validate date year matches active year.
+  // Prevents accidentally saving a record under the wrong year (e.g. typing 2026 date while active year is 2025).
+  const dateYear = selectedDate.getFullYear().toString();
+  if (dateYear !== getActiveYear()) {
+    _addOTLock = false;
+    toast(`⚠️ তারিখের সাল (${dateYear}) সক্রিয় সালের (${getActiveYear()}) সাথে মিলছে না!`, '', 3800);
+    return;
+  }
+
+  if (curShifts.size === 0 || curRunnings.size === 0) {
+    _addOTLock = false;
+    toast('⚠️ অন্তত ১টি Shift Type ও ১টি Running Shift বেছে নিন।', '', 3800);
+    return;
+  }
+
+  if (curShifts.size !== curRunnings.size) {
+    _addOTLock = false;
+    toast(`⚠️ ঠিক করুন! Shift Type (${curShifts.size}টা) ও Running Shift (${curRunnings.size}টা) সমান হতে হবে।`, '', 3800);
+    return;
+  }
+
+  if (!curDutyType || !DUTY_KEYS.includes(curDutyType)) {
+    _addOTLock = false;
+    toast('⚠️ Duty Type বেছে নিন (Modul Man / CBC Filler / Extra Others)।', '', 3800);
+    return;
+  }
+
+  const runnings = [...runningOrder];
+  const shifts   = [...shiftOrder];
+  // Smart duty count: >8h → count as multiple duties
+  // Holiday = exactly 2 regular-duty equivalents (payment = rate × dutyCount, so 2× applied once)
+  const dutyCount = (curDutyNature === 'holiday') ? 2 : (hours > 8 ? Math.ceil(hours / 8) : Math.max(1, runnings.length));
+  // Build moduleNumbers without mutating global moduleChips state
+  const moduleNumbers = [...moduleChips];
+  const pendingMod = document.getElementById('otModuleInput')?.value?.trim();
+  if (pendingMod && moduleNumbers.length < 10) {
+    moduleNumbers.push(pendingMod);
+  }
+  const recs = getOTRecs();
+  recs.push({ id: Date.now(), month, date, shift: shifts[0], shifts, running: runnings[0], runnings, hours, dutyType: curDutyType, dutyNature: curDutyNature, dutyCount, ...(moduleNumbers.length > 0 && { moduleNumbers }) });
+
+  // BUG FIX v1.5: Check if save succeeded before clearing the form.
+  // If storage is full, putOTRecs returns false — don't clear fields so user doesn't lose data.
+  const saved = putOTRecs(recs);
+  if (!saved) {
+    _addOTLock = false;
+    return; // toast was already shown by putOTRecs
+  }
+
+  document.getElementById('otMonth').value = '';
+  document.getElementById('otDate').value  = '';
+  document.getElementById('otHours').value = '';
+  _normalHoursStash = '';
+  clearModuleChips();
+
+  // Restore today's month & date for the next entry
+  setOTToday();
+
+  // Reset shift/running selections back to no selection
+  curShifts = new Set();
+  shiftOrder = [];
+  curRunnings = new Set();
+  runningOrder = [];
+  renderShiftBadges();
+  renderRunningBadges();
+  // Reset duty nature to normal
+  curDutyNature = 'normal';
+  setDutyNature('normal');
+
+  updateOTStats(); renderOTHist();
+  calcDutyEarnings();
+  selectDutyType(null);
+  // Reset the active year OT date range
+  const y2 = getActiveYear();
+  const dEl = document.getElementById('otDate');
+  if (dEl) { dEl.min = y2 + '-01-01'; dEl.max = y2 + '-12-31'; }
+  toast('Overtime রেকর্ড যোগ হয়েছে ✅');
+  setTimeout(() => { _addOTLock = false; }, 800);
+}
+
+function delOT(id) {
+  putOTRecs(getOTRecs().filter(r => r.id !== id));
+  updateOTStats(); renderOTHist(); calcDutyEarnings();
+  toast('রেকর্ড মুছে গেছে');
+}
+
+function clearAllOT() {
+  showConfirm('সব Overtime রেকর্ড মুছে ফেলবেন?', function() {
+    putOTRecs([]);
+    // Reset month filter so the empty state is not confusingly month-scoped
+    activeOTMonth = null;
+    document.querySelectorAll('.ot-month-chip:not(.clear-chip)').forEach(c => c.classList.remove('selected'));
+    const lbl = document.getElementById('otMonthBtnLabel');
+    if (lbl) lbl.textContent = 'All Months';
+    const dropdown = document.getElementById('otMonthDropdown');
+    const btn      = document.getElementById('otMonthToggleBtn');
+    if (dropdown) dropdown.classList.remove('open');
+    if (btn) { btn.classList.remove('active', 'filtering'); btn.style.fontWeight = ''; }
+    updateOTStats(); renderOTHist(); calcDutyEarnings();
+    toast('সব overtime রেকর্ড মুছে গেছে');
+  });
+}
+
+function updateOTStats() {
+  // Respect the active month filter so this matches the visible history list
+  // (previously summed ALL months regardless of the selected month).
+  const t = getOTRecs()
+    .filter(r => !activeOTMonth || r.month === activeOTMonth)
+    .reduce((s,r) => s + (Number(r.hours) || 0), 0);
+  document.getElementById('otTotal').textContent = fmtNum(t);
+}
+
+// ========== OT HISTORY FILTER ==========
+let activeOTFilter = 'cbc'; // default: CBC Filler
+let activeOTMonth  = null;  // null = show all months
+
+/* ---------- Month filter toggle ---------- */
+function toggleOTMonthFilter() {
+  const dropdown = document.getElementById('otMonthDropdown');
+  const btn      = document.getElementById('otMonthToggleBtn');
+  if (!dropdown || !btn) return;
+  const isOpen = dropdown.classList.contains('open');
+  dropdown.classList.toggle('open', !isOpen);
+  btn.classList.toggle('active', !isOpen);
+}
+
+function setOTMonth(month) {
+  activeOTMonth = month;
+  // Update chip styles
+  document.querySelectorAll('.ot-month-chip:not(.clear-chip)').forEach(chip => {
+    chip.classList.toggle('selected', chip.textContent.trim() === month.slice(0, 3));
+  });
+  // Update button label
+  const lbl = document.getElementById('otMonthBtnLabel');
+  if (lbl) lbl.textContent = month;
+  // Auto-close dropdown after selection (better mobile UX)
+  const dropdown = document.getElementById('otMonthDropdown');
+  const btn      = document.getElementById('otMonthToggleBtn');
+  if (dropdown) dropdown.classList.remove('open');
+  if (btn) {
+    btn.classList.remove('active');    // close indicator
+    btn.classList.add('filtering');    // active-filter indicator (green)
+    btn.style.fontWeight = '';         // clear any stale inline style
+  }
+  renderOTHist();
+  updateOTStats();
+  calcDutyEarnings();
+}
+
+function clearOTMonth() {
+  activeOTMonth = null;
+  document.querySelectorAll('.ot-month-chip:not(.clear-chip)').forEach(chip => chip.classList.remove('selected'));
+  const lbl = document.getElementById('otMonthBtnLabel');
+  if (lbl) lbl.textContent = 'All Months';
+  // Close dropdown + fully reset button state
+  const dropdown = document.getElementById('otMonthDropdown');
+  const btn      = document.getElementById('otMonthToggleBtn');
+  if (dropdown) dropdown.classList.remove('open');
+  if (btn) {
+    btn.classList.remove('active', 'filtering');
+    btn.style.fontWeight = '';
+  }
+  renderOTHist();
+  updateOTStats();
+  calcDutyEarnings();
+}
+
+
+function updateOTCounts() {
+  const allRecs = getOTRecs();
+  ['cbc','modul','extra'].forEach(k => {
+    // BUG FIX v1.4: Count should also respect the active month filter so the
+    // badge number matches what is actually visible in the history list.
+    const cnt = allRecs
+      .filter(r => {
+        if ((r.dutyType || 'modul') !== k) return false;
+        if (activeOTMonth && r.month !== activeOTMonth) return false;
+        return true;
+      })
+      .reduce((sum, r) => {
+        const hours = Number(r.hours) || 0;
+        const dc = r.dutyCount
+          ? r.dutyCount
+          : (hours > 8 ? Math.ceil(hours / 8) : (Array.isArray(r.runnings) ? r.runnings.length : 1));
+        return sum + dc;
+      }, 0);
+    const el = document.getElementById('count-' + k);
+    if (el) el.textContent = cnt + ' টা';
+  });
+}
+
+function setOTFilter(key) {
+  activeOTFilter = key;
+
+  // Update duty-type button styles
+  const filterStyles = {
+    cbc:   { border:'#7c3aed', bg:'#7c3aed', color:'white', inactiveBg:'#ede9fe', inactiveColor:'#7c3aed', inactiveBorder:'#ede9fe' },
+    modul: { border:'#1a56db', bg:'#1a56db', color:'white', inactiveBg:'#dbeafe', inactiveColor:'#1a56db', inactiveBorder:'#dbeafe' },
+    extra: { border:'#d97706', bg:'#d97706', color:'white', inactiveBg:'#fef3c7', inactiveColor:'#d97706', inactiveBorder:'#fef3c7' }
+  };
+
+  ['cbc','modul','extra'].forEach(k => {
+    const btn = document.getElementById('filter-' + k);
+    if (!btn) return;
+    const s = filterStyles[k];
+    if (k === key) {
+      btn.style.background   = s.bg;
+      btn.style.color        = s.color;
+      btn.style.borderColor  = s.border;
+      btn.style.boxShadow    = '0 4px 12px rgba(0,0,0,0.18)';
+      btn.style.transform    = 'scale(1.04)';
+    } else {
+      btn.style.background   = s.inactiveBg;
+      btn.style.color        = s.inactiveColor;
+      btn.style.borderColor  = s.inactiveBorder;
+      btn.style.boxShadow    = 'none';
+      btn.style.transform    = 'scale(1)';
+    }
+  });
+
+  renderOTHist();
+}
+
+// Format date: 2026-06-01 → 01-June-2026
+function formatOTDate(dateStr) {
+  if (!dateStr) return dateStr;
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const day   = parts[2];
+  const month = monthNames[parseInt(parts[1], 10) - 1] || parts[1];
+  const year  = parts[0];
+  return day + '-' + month + '-' + year;
+}
+
+// Helper: renders nature badge + duty count label for a OT record
+function renderOTNatureLabel(r) {
+  const nature = r.dutyNature || 'normal';
+  const isHoliday = nature === 'holiday';
+  const natureLbl = `<span class="${isHoliday ? 'nature-badge-holiday' : 'nature-badge-normal'}">${isHoliday ? '🔴 Holiday' : '🟢 Normal'}</span>`;
+  const hours = Number(r.hours) || 0;
+  const dc = r.dutyCount || (hours > 8 ? Math.ceil(hours / 8) : (Array.isArray(r.runnings) ? r.runnings.length : 1));
+  const dblLbl = isHoliday ? '<span class="double-duty-badge">DOUBLE DUTY</span>' : '';
+  const countLbl = dc > 1 ? `<span class="duty-count-badge">${dc} duties</span>` : '';
+  return `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">${natureLbl}${dblLbl}${countLbl ? '<div>' + countLbl + '</div>' : ''}</div>`;
+}
+
+function renderOTHist() {
+  updateOTCounts();
+  const allRecs = getOTRecs();
+  // Apply duty-type filter first, then optional month filter
+  const recs = allRecs.filter(r => {
+    if ((r.dutyType || 'modul') !== activeOTFilter) return false;
+    if (activeOTMonth && r.month !== activeOTMonth) return false;
+    return true;
+  });
+  const el   = document.getElementById('otHist');
+  if (!recs.length) {
+    const emptyMsg = activeOTMonth
+      ? `No overtime records found for <strong>${activeOTMonth}</strong>.`
+      : 'No overtime records yet. Add your first one above.';
+    el.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      <p>${emptyMsg}</p>
+    </div>`; return;
+  }
+
+  const shiftStyle = {
+    white:  { bg:'#f1f5f9', color:'#475569' },
+    yellow: { bg:'#fef9c3', color:'#854d0e' },
+    blue:   { bg:'#dbeafe', color:'#1e40af' },
+    green:  { bg:'#dcfce7', color:'#15803d' }
+  };
+  const isDark = document.body.getAttribute('data-theme') === 'dark';
+  const runStyle = {
+    morning: { bg:'#fef3c7', color:'#92400e' },
+    evening: { bg:'#ede9fe', color:'#5b21b6' },
+    night:   { bg: isDark ? '#1e293b' : '#0f172a', color:'#93c5fd' }
+  };
+
+  el.innerHTML = [...recs].reverse().map(r => {
+    const sc = shiftStyle[r.shift] || shiftStyle.white;
+    // backward compat: old records have r.running (string), new have r.runnings (array)
+    const runList   = r.runnings || [r.running || 'morning'];
+    // backward compat: old records have r.shift (string), new have r.shifts (array)
+    const shiftList = r.shifts  || [r.shift || 'white'];
+    const pairChips = shiftList.map((sh, i) => {
+      const sc2 = shiftStyle[sh] || shiftStyle.white;
+      const rn = runList[i];
+      const rc = rn ? (runStyle[rn] || runStyle.morning) : null;
+      const runChip = rc ? `<span class="chip" style="background:${rc.bg};color:${rc.color};">${cap(rn)}</span>` : '';
+      return `<span style="display:inline-flex;flex-direction:column;align-items:flex-start;gap:3px;margin-right:6px;">
+        <span class="chip" style="background:${sc2.bg};color:${sc2.color};">${cap(sh)}</span>
+        ${runChip}
+      </span>`;
+    }).join('');
+    const shiftChips = pairChips;
+    const runChips = '';
+    const dutyColors = { modul:'#1a56db', cbc:'#7c3aed', extra:'#d97706' };
+    const dutyBgs    = { modul:'#dbeafe', cbc:'#ede9fe', extra:'#fef3c7' };
+    const dutyLabel  = { modul:'Modul Man', cbc:'CBC Filler', extra:'Extra Others' };
+    // BUG FIX v1.6: Old records without dutyType default to 'modul' for display,
+    // consistent with how calcDutyEarnings() and renderOTHist() filtering treat them.
+    // Previously old records showed no duty chip — now they show "💼 Modul Man".
+    const dtKey = r.dutyType || 'modul';
+    const dutyChip = `<span class="chip" style="background:${dutyBgs[dtKey]||'#f1f5f9'};color:${dutyColors[dtKey]||'#475569'};">💼 ${dutyLabel[dtKey]||dtKey}</span>`;
+    // Support both new moduleNumbers array and legacy single moduleNumber field
+    const mnArr = Array.isArray(r.moduleNumbers) && r.moduleNumbers.length > 0
+      ? r.moduleNumbers
+      : (r.moduleNumber != null ? [r.moduleNumber] : []);
+    const moduleDisplay = mnArr.length > 0
+      ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:2px;">${mnArr.map(n =>
+          `<span style="display:inline-flex;align-items:center;font-size:10px;font-weight:800;color:var(--accent);background:var(--accent-light);border-radius:20px;padding:2px 7px;letter-spacing:0.2px;">📦 ${escHtml(String(n))}</span>`
+        ).join('')}</div>`
+      : '';
+    return `
+      <div class="hist-item">
+        <div class="hist-icon" style="background:${sc.bg};color:${sc.color};">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </div>
+        <div class="hist-info">
+          <div class="hist-main">${formatOTDate(r.date)}</div>
+          <div class="hist-sub">
+            <div style="display:flex;flex-direction:row;flex-wrap:nowrap;gap:4px;align-items:flex-start;">${shiftChips}</div>
+            <div>${dutyChip}</div>
+            ${moduleDisplay}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+          <div class="hist-value" style="color:var(--success);">${fmtNum(r.hours)}h</div>
+          ${renderOTNatureLabel(r)}
+        </div>
+        <button class="del-btn" onclick="delOT(${r.id})">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+            <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+          </svg>
+        </button>
+      </div>`;
+  }).join('');
+}
+
+function resetOT() {
+  showConfirm('সব Overtime ডেটা Reset করবেন?', function() {
+    putOTRecs([]);
+    activeOTMonth = null;
+    document.querySelectorAll('.ot-month-chip:not(.clear-chip)').forEach(c => c.classList.remove('selected'));
+    const lbl2 = document.getElementById('otMonthBtnLabel');
+    if (lbl2) lbl2.textContent = 'All Months';
+    const dd2 = document.getElementById('otMonthDropdown');
+    const b2  = document.getElementById('otMonthToggleBtn');
+    if (dd2) dd2.classList.remove('open');
+    if (b2)  { b2.classList.remove('active', 'filtering'); b2.style.fontWeight = ''; }
+    updateOTStats(); renderOTHist(); calcDutyEarnings();
+    toast('Overtime ডেটা reset হয়েছে');
+  });
+}
+
+// ========== CUSTOM CONFIRM ==========
+let _confirmCb = null;
+function showConfirm(msg, cb) {
+  _confirmCb = cb;
+  document.getElementById('confirmMsg').textContent = msg;
+  document.getElementById('confirmModal').style.display = 'flex';
+}
+function confirmOk() {
+  document.getElementById('confirmModal').style.display = 'none';
+  if (_confirmCb) { _confirmCb(); _confirmCb = null; }
+}
+function confirmCancel() {
+  document.getElementById('confirmModal').style.display = 'none';
+  _confirmCb = null;
+}
+
+// ========== YEAR PICKER ==========
+function getAllSavedYears() {
+  const years = new Set([getActiveYear()]);
+  Object.keys(localStorage).forEach(key => {
+    if (!key) return;
+    if (key.startsWith('lc_monthly_')) years.add(key.replace('lc_monthly_', ''));
+    if (key.startsWith('lc_ot_'))      years.add(key.replace('lc_ot_', ''));
+    if (key.startsWith('lc_leave_'))   years.add(key.replace('lc_leave_', ''));
+  });
+  return [...years].filter(y => /^\d{4}$/.test(y)).sort((a,b) => b - a);
+}
+
+function openYearPicker() {
+  const active = getActiveYear();
+  const years  = getAllSavedYears();
+  const list   = document.getElementById('yearList');
+  list.innerHTML = years.map(y => `
+    <div onclick="switchYear('${y}')" style="
+      padding:13px 16px; border-radius:10px; margin-bottom:7px; cursor:pointer;
+      background:${y === active ? 'var(--accent)' : 'var(--input-bg)'};
+      color:${y === active ? 'white' : 'var(--text)'};
+      font-size:15px; font-weight:800;
+      border:1.5px solid ${y === active ? 'var(--accent)' : 'var(--border)'};
+      display:flex; justify-content:space-between; align-items:center;">
+      <span>${y}</span>
+      ${y === active ? '<span style="font-size:11px;opacity:0.8;">✓ সক্রিয়</span>' : ''}
+    </div>`).join('');
+  document.getElementById('yearPickerModal').style.display = 'flex';
+}
+
+function closeYearPicker() {
+  document.getElementById('yearPickerModal').style.display = 'none';
+}
+
+function switchYear(y) {
+  localStorage.setItem('lc_active_year', y);
+  closeYearPicker();
+  // Reset month filter — different year has different records
+  activeOTMonth = null;
+  document.querySelectorAll('.ot-month-chip:not(.clear-chip)').forEach(c => c.classList.remove('selected'));
+  const swLbl = document.getElementById('otMonthBtnLabel');
+  if (swLbl) swLbl.textContent = 'All Months';
+  const swDd = document.getElementById('otMonthDropdown');
+  const swB  = document.getElementById('otMonthToggleBtn');
+  if (swDd) swDd.classList.remove('open');
+  if (swB)  { swB.classList.remove('active', 'filtering'); swB.style.fontWeight = ''; }
+  updateYearBadges();
+  buildMonthGrid();
+  updateLeaveStats();
+  renderLeaveHist();
+  updateOTStats();
+  renderOTHist();
+  calcDutyEarnings();
+  const dateEl = document.getElementById('otDate');
+  if (dateEl) { dateEl.min = y + '-01-01'; dateEl.max = y + '-12-31'; dateEl.value = ''; }
+  toast(y + ' সালের ডেটা দেখছেন');
+  // BUG FIX 6: Clear the OT form's month dropdown when switching year.
+  // Without this, a month selected for the old year stays in the dropdown,
+  // which confuses the date-sync and month/date mismatch validation.
+  const otMonthSel = document.getElementById('otMonth');
+  if (otMonthSel) otMonthSel.value = '';
+  // Auto-fill today's month & date in the newly active year
+  setOTToday();
+}
+
+function showNewYearConfirm() {
+  closeYearPicker();
+  startNewYear();
+}
+
+// ========== YEAR SYSTEM ==========
+function getActiveYear() {
+  return localStorage.getItem('lc_active_year') || new Date().getFullYear().toString();
+}
+
+// ========== STORAGE AVAILABILITY CHECK ==========
+function isStorageAvailable() {
+  try {
+    const testKey = '__lc_test__';
+    localStorage.setItem(testKey, '1');
+    localStorage.removeItem(testKey);
+    return true;
+  } catch(e) { return false; }
+}
+if (!isStorageAvailable()) {
+  document.body.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:24px;text-align:center;background:#1e293b;color:white;gap:16px;">' +
+    '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' +
+    '<h2 style="font-size:20px;font-weight:900;margin:0;">Storage Unavailable</h2>' +
+    '<p style="font-size:14px;opacity:0.75;line-height:1.6;margin:0;">This app requires localStorage to save your data. Please disable Private/Incognito mode or allow storage access for this page.</p>' +
+    '</div>';
+  throw new Error('localStorage unavailable');
+}
+
+function migrateOldData() {
+  const year = getActiveYear();
+  // Migrate old non-year-keyed data
+  ['lc_monthly','lc_leave','lc_ot'].forEach(key => {
+    try {
+      const yearKey = key + '_' + year;
+      if (localStorage.getItem(key) && !localStorage.getItem(yearKey)) {
+        localStorage.setItem(yearKey, localStorage.getItem(key));
+        localStorage.removeItem(key);
+      }
+    } catch(e) { console.warn('Migration failed for key:', key, e); }
+  });
+}
+
+function startNewYear() {
+  const curYear  = getActiveYear();
+  const nextYear = (parseInt(curYear) + 1).toString();
+  showConfirm(curYear + ' সালের সব ডেটা সেভ থাকবে।\n' + nextYear + ' সাল শুরু করবেন?', function() {
+    localStorage.setItem('lc_active_year', nextYear);
+    // Reset month filter — new year starts fresh
+    activeOTMonth = null;
+    document.querySelectorAll('.ot-month-chip:not(.clear-chip)').forEach(c => c.classList.remove('selected'));
+    const lbl3 = document.getElementById('otMonthBtnLabel');
+    if (lbl3) lbl3.textContent = 'All Months';
+    const dd3 = document.getElementById('otMonthDropdown');
+    const b3  = document.getElementById('otMonthToggleBtn');
+    if (dd3) dd3.classList.remove('open');
+    if (b3)  { b3.classList.remove('active', 'filtering'); b3.style.fontWeight = ''; }
+    updateYearBadges();
+    buildMonthGrid();
+    updateLeaveStats();
+    renderLeaveHist();
+    updateOTStats();
+    renderOTHist();
+    calcDutyEarnings();
+    const dateEl = document.getElementById('otDate');
+    if (dateEl) { dateEl.min = nextYear + '-01-01'; dateEl.max = nextYear + '-12-31'; dateEl.value = ''; }
+    // BUG FIX 6 (cont): Also reset the OT form month dropdown on new year start.
+    const otMonthSelNY = document.getElementById('otMonth');
+    if (otMonthSelNY) otMonthSelNY.value = '';
+    // Auto-fill today's month & date in the new year context
+    setOTToday();
+    toast(nextYear + ' সাল শুরু! ' + curYear + ' ডেটা সেভ আছে। ✅');
+  });
+}
+
+function updateYearBadges() {
+  const y = getActiveYear();
+  document.querySelectorAll('.active-year-badge').forEach(el => el.textContent = y);
+}
+
+// ========== OT Month → Date Sync ==========
+// Behaviour:
+//   • setOTToday() → auto-fills today's month + today's full date (called on load / after submit).
+//   • syncOTDateToMonth() → called when user manually changes the Month dropdown.
+//       - If the existing date is already in the correct month, leave it alone.
+//       - Otherwise reset Date to the 1st of the selected month (v1.3 design spec).
+//       - Year comes from the active year setting.
+function syncOTDateToMonth() {
+  const monthSel = document.getElementById('otMonth');
+  const dateInp  = document.getElementById('otDate');
+  if (!monthSel || !dateInp) return;
+
+  const month = monthSel.value;
+  if (!month) return;
+
+  const idx = MONTHS.indexOf(month);
+  if (idx === -1) return;
+
+  const existingDate = dateInp.value;
+
+  // Guard: existing date is already in the selected month → respect user's current value
+  if (existingDate) {
+    const existingMonthIdx = new Date(existingDate + 'T00:00:00').getMonth();
+    if (existingMonthIdx === idx) return;
+  }
+
+  // Reset to the 1st day of the newly selected month.
+  // Using day 01 avoids any "invalid date" edge-cases (e.g. Feb 30, Apr 31, etc.)
+  const year     = parseInt(getActiveYear(), 10);
+  const monthNum = idx + 1;                              // 1-based month (1–12)
+  const pad      = n => String(n).padStart(2, '0');
+
+  dateInp.value = `${year}-${pad(monthNum)}-01`;
+
+  // Hide the "Auto" badge — user explicitly changed the month
+  _updateOTDateBadge(false);
+}
+
+// ========== AUTO-FILL OT FORM WITH TODAY'S DATE ==========
+// Sets Month dropdown to the current month name and Date field to today's date
+// in YYYY-MM-DD format (standard HTML date input value format).
+// Uses device local time — no UTC offsets — for correct timezone handling.
+// The year used is the currently active year (for date range clamping),
+// while month and day come from the real device clock.
+// Edge-case: if today's day exceeds the max for the active-year's same month
+// (e.g. active year 2025 + today Mar 31 but Feb only has 28 days in 2025),
+// the day is clamped to the month's actual maximum.
+function setOTToday() {
+  const now        = new Date();                         // device local time
+  const monthIdx   = now.getMonth();                     // 0-based (0=Jan … 11=Dec)
+  const dayOfMonth = now.getDate();                      // 1–31 (local)
+  const activeYear = parseInt(getActiveYear(), 10);      // may differ from current year
+  const pad        = n => String(n).padStart(2, '0');
+
+  // ── Month dropdown ──
+  const monthSel = document.getElementById('otMonth');
+  if (monthSel) {
+    monthSel.value = MONTHS[monthIdx];                   // e.g. "May"
+  }
+
+  // ── Date input (value must always be YYYY-MM-DD) ──
+  const dateInp = document.getElementById('otDate');
+  if (dateInp) {
+    // Clamp the day to the actual max days in this month for the active year
+    // (handles Feb 28/29 across years, 30-day months, etc.)
+    const maxDays    = new Date(activeYear, monthIdx + 1, 0).getDate();
+    const clampedDay = Math.min(dayOfMonth, maxDays);
+    dateInp.value = `${activeYear}-${pad(monthIdx + 1)}-${pad(clampedDay)}`;
+  }
+
+  // Show the "Auto" badge — will hide when user manually changes date
+  _updateOTDateBadge(true);
+}
+
+// Show/hide the "📅 Auto" badge next to the Date label
+function _updateOTDateBadge(isAuto) {
+  const badge = document.getElementById('otDateTodayBadge');
+  if (!badge) return;
+  badge.style.display = isAuto ? '' : 'none';
+}
+
+// Called when user manually edits the date field
+function handleOTDateInput() {
+  // User is manually setting a date — hide the auto badge and sync month
+  _updateOTDateBadge(false);
+  // Sync month dropdown to match manually entered date
+  const dateInp  = document.getElementById('otDate');
+  const monthSel = document.getElementById('otMonth');
+  if (!dateInp || !monthSel || !dateInp.value) return;
+  try {
+    const d = new Date(dateInp.value + 'T00:00:00');
+    if (!isNaN(d.getTime())) {
+      monthSel.value = MONTHS[d.getMonth()];
+    }
+  } catch(e) {}
+}
+
+
+function cap(s)     { return s.charAt(0).toUpperCase() + s.slice(1); }
+function fmtNum(n)  { if (isNaN(n) || n == null) return '0'; return n % 1 === 0 ? n : n.toFixed(1); }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ========== LIVE CLOCK ==========
+function updateClock() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  let h = now.getHours();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  const m = pad(now.getMinutes());
+  const s = pad(now.getSeconds());
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day = days[now.getDay()];
+  const date = pad(now.getDate());
+  const month = months[now.getMonth()];
+  const year = now.getFullYear();
+  const timeEl = document.getElementById('clockTime');
+  const dateEl = document.getElementById('clockDate');
+  if (timeEl) timeEl.textContent = `${h}:${m}:${s} ${ampm}`;
+  if (dateEl) dateEl.textContent = `${day}, ${date} ${month} ${year}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ========== INIT ==========
+function init() {
+  migrateOldData();
+  loadTheme();
+  loadEmpInfo();
+  updateYearBadges();
+  buildMonthGrid();
+  updateLeaveStats();
+  renderLeaveHist();
+  updateOTStats();
+  // BUG FIX v1.4: Removed duplicate renderOTHist() call here.
+  // setOTFilter() below already calls renderOTHist() internally,
+  // so calling it here caused a double render on every page load.
+  const y = getActiveYear();
+  const dateEl = document.getElementById('otDate');
+  if (dateEl) { dateEl.min = y + '-01-01'; dateEl.max = y + '-12-31'; }
+  // Auto-fill OT form with today's month & date on startup
+  setOTToday();
+  // Default Overtime History view to the current running month instead of "All Months".
+  // Set this BEFORE setOTFilter('cbc') (which already triggers the one renderOTHist()
+  // call below) so we don't cause a second/duplicate render at startup.
+  const _curOTMonth = MONTHS[new Date().getMonth()];
+  activeOTMonth = _curOTMonth;
+  document.querySelectorAll('.ot-month-chip:not(.clear-chip)').forEach(chip => {
+    chip.classList.toggle('selected', chip.textContent.trim() === _curOTMonth.slice(0, 3));
+  });
+  const _otLbl = document.getElementById('otMonthBtnLabel');
+  if (_otLbl) _otLbl.textContent = _curOTMonth;
+  const _otBtn = document.getElementById('otMonthToggleBtn');
+  if (_otBtn) { _otBtn.classList.remove('active'); _otBtn.classList.add('filtering'); _otBtn.style.fontWeight = ''; }
+  // Set default OT filter button styling (also triggers the single renderOTHist() call)
+  setOTFilter('cbc');
+  // Re-run now that the current-month default above is set, so the hero
+  // "Total Overtime Hours" figure matches the selected month from first load
+  // (the earlier updateOTStats() call ran before activeOTMonth was set).
+  updateOTStats();
+}
+
+// ========== BOOT — runs once when scripts execute ==========
+// Critical: without this call, NO saved data loads and year badges/month grid are empty.
+init();
+
+// ========== DATA BACKUP / RESTORE (Clipboard-only) ==========
+
+// ── Copy all data to clipboard ──
+function copyBackup() {
+  const copyStatusEl = document.getElementById('copyStatus');
+  try {
+    const backup = {};
+    Object.keys(localStorage).forEach(key => {
+      if (key && key.startsWith('lc_')) backup[key] = localStorage.getItem(key);
+    });
+
+    if (Object.keys(backup).length === 0) {
+      if (copyStatusEl) {
+        copyStatusEl.style.display    = 'block';
+        copyStatusEl.style.background = 'var(--warning-light)';
+        copyStatusEl.style.color      = 'var(--warning)';
+        copyStatusEl.textContent      = '⚠️ কোনো data পাওয়া যায়নি। আগে কিছু data add করুন।';
+      }
+      return;
+    }
+
+    backup['__app']      = 'LeaveCount';
+    backup['__version']  = '1.0';
+    backup['__exported'] = new Date().toISOString();
+    const json = JSON.stringify(backup, null, 2);
+
+    const finish = () => {
+      // Track when the last successful backup was taken (local metadata only —
+      // deliberately NOT prefixed with 'lc_' so it isn't bundled into the export itself).
+      try { localStorage.setItem('lastBackupTs', Date.now().toString()); } catch(e) {}
+      updateLastBackupDisplay();
+      if (copyStatusEl) {
+        copyStatusEl.style.display    = 'block';
+        copyStatusEl.style.background = 'var(--success-light)';
+        copyStatusEl.style.color      = 'var(--success)';
+        copyStatusEl.textContent      = '✅ Backup copied successfully! Notepad-এ paste করে সেভ করুন।';
+        setTimeout(() => { if (copyStatusEl) copyStatusEl.style.display = 'none'; }, 5000);
+      }
+      toast('✅ Backup copied successfully!');
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(json).then(finish).catch(() => legacyCopy(json, finish));
+    } else {
+      legacyCopy(json, finish);
+    }
+  } catch(e) {
+    toast('Copy হয়নি। আবার চেষ্টা করুন।');
+    console.error(e);
+  }
+}
+
+// ── Show "last backup taken X ago" status on the Backup & Restore page ──
+function updateLastBackupDisplay() {
+  const el = document.getElementById('lastBackupInfo');
+  if (!el) return;
+  let ts = null;
+  try { ts = localStorage.getItem('lastBackupTs'); } catch(e) {}
+  if (!ts) {
+    el.innerHTML = '⚠️ এখনো কোনো ব্যাকাপ নেওয়া হয়নি';
+    el.style.color = 'var(--warning)';
+    return;
+  }
+  const diffMs  = Date.now() - parseInt(ts, 10);
+  const minutes = Math.floor(diffMs / 60000);
+  const hours   = Math.floor(diffMs / 3600000);
+  const days    = Math.floor(diffMs / 86400000);
+  let when;
+  if (minutes < 1)        when = 'এইমাত্র';
+  else if (minutes < 60)  when = `${minutes} মিনিট আগে`;
+  else if (hours   < 24)  when = `${hours} ঘণ্টা আগে`;
+  else if (days    === 1) when = 'গতকাল';
+  else                    when = `${days} দিন আগে`;
+  // Nudge the user with a warning colour if it's been a while since the last backup
+  el.style.color = days >= 30 ? 'var(--warning)' : 'var(--text-secondary)';
+  el.innerHTML = `🕒 শেষ ব্যাকাপ: ${when}`;
+}
+
+// ── Auto-detect a Leave Count backup already sitting in the clipboard,
+//    and pre-fill the Restore box so the user doesn't have to paste manually.
+//    Never auto-restores data — only fills the textarea; the user still taps Restore.
+function autoDetectClipboardBackup() {
+  const box = document.getElementById('pasteImportBox');
+  if (!box || !navigator.clipboard || !navigator.clipboard.readText) return;
+  // Don't override anything the user already typed/pasted themselves
+  if (box.value.trim().length > 10) return;
+  navigator.clipboard.readText().then(text => {
+    const t = (text || '').trim();
+    if (t.length > 10 && t.startsWith('{') && t.includes('"__app"') && t.includes('LeaveCount')) {
+      box.value = t;
+      onPasteBoxInput(box);
+      toast('📋 ক্লিপবোর্ডে ব্যাকাপ পাওয়া গেছে — নিচে Restore বাটনে চাপুন');
+    }
+  }).catch(() => { /* permission denied or unsupported — silently ignore */ });
+}
+
+// ── Legacy clipboard fallback (execCommand) ──
+function legacyCopy(text, cb) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (ok && cb) cb();
+    else toast('Copy হয়নি। Clipboard permission দিন অথবা ম্যানুয়ালি copy করুন।');
+  } catch(e) {
+    toast('Copy হয়নি। আবার চেষ্টা করুন।');
+  }
+}
+
+// ── Paste box: show/hide Restore button ──
+function onPasteBoxInput(ta) {
+  const btn      = document.getElementById('pasteImportBtn');
+  const statusEl = document.getElementById('pasteImportStatus');
+  if (ta.value.trim().length > 10) {
+    btn.style.display = 'block';
+  } else {
+    btn.style.display = 'none';
+    if (statusEl) statusEl.style.display = 'none';
+  }
+}
+
+// ── Shared reload helper ──
+function reloadAllData() {
+  loadTheme();
+  loadEmpInfo();
+  updateYearBadges();
+  buildMonthGrid();
+  updateLeaveStats();
+  renderLeaveHist();
+  updateOTStats();
+  // Reset month filter before re-rendering so restored data is fully visible
+  activeOTMonth = null;
+  document.querySelectorAll('.ot-month-chip:not(.clear-chip)').forEach(c => c.classList.remove('selected'));
+  const rlbl = document.getElementById('otMonthBtnLabel');
+  if (rlbl) rlbl.textContent = 'All Months';
+  const rdd = document.getElementById('otMonthDropdown');
+  const rb  = document.getElementById('otMonthToggleBtn');
+  if (rdd) rdd.classList.remove('open');
+  if (rb)  { rb.classList.remove('active', 'filtering'); rb.style.fontWeight = ''; }
+  // BUG FIX v1.6: Removed direct renderOTHist() call here.
+  // setOTFilter() below already calls renderOTHist() internally,
+  // so calling it here caused another double render (same issue fixed in init()).
+  loadDutyState();
+  renderShiftBadges();
+  renderRunningBadges();
+  // BUG FIX 7: Re-apply OT filter button visual state after restore.
+  // Inline styles on filter buttons are persisted by the DOM, but after a full
+  // data reload the active filter might differ from the visual state.
+  setOTFilter(activeOTFilter);
+
+  const restoredYear = getActiveYear();
+  const dateEl = document.getElementById('otDate');
+  if (dateEl) { dateEl.min = restoredYear + '-01-01'; dateEl.max = restoredYear + '-12-31'; dateEl.value = ''; }
+  // BUG FIX v1.3: Auto-fill today's month & date after restore.
+  // Without this, Month dropdown and Date field stay empty after a data restore.
+  setOTToday();
+
+  if (empEditMode) {
+    empEditMode = false;
+    const btn = document.getElementById('empEditBtn');
+    if (btn) {
+      btn.className = 'emp-edit-btn edit-mode';
+      btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit`;
+    }
+    EMP_FIELDS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.setAttribute('readonly', '');
+    });
+  }
+}
+
+// ── Restore from pasted text ──
+function importFromPaste() {
+  const ta       = document.getElementById('pasteImportBox');
+  const statusEl = document.getElementById('pasteImportStatus');
+  const text     = ta.value.trim();
+
+  if (!text) {
+    statusEl.style.display    = 'block';
+    statusEl.style.background = 'var(--danger-light)';
+    statusEl.style.color      = 'var(--danger)';
+    statusEl.textContent      = '❌ কোনো text পাওয়া যায়নি।';
+    return;
+  }
+
+  let backup;
+  try {
+    backup = JSON.parse(text);
+  } catch(e) {
+    statusEl.style.display    = 'block';
+    statusEl.style.background = 'var(--danger-light)';
+    statusEl.style.color      = 'var(--danger)';
+    statusEl.textContent      = '❌ Invalid data। সঠিক backup text paste করুন।';
+    return;
+  }
+
+  if (backup['__app'] !== 'LeaveCount') {
+    statusEl.style.display    = 'block';
+    statusEl.style.background = 'var(--danger-light)';
+    statusEl.style.color      = 'var(--danger)';
+    statusEl.textContent      = '❌ এটি সঠিক LeaveCount backup নয়।';
+    return;
+  }
+
+  showConfirm('Restore করলে বর্তমান সব data মুছে যাবে এবং backup এর data আসবে। নিশ্চিত?', function() {
+    const keysToRemove = Object.keys(localStorage).filter(k => k && k.startsWith('lc_'));
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+
+    let count = 0;
+    Object.keys(backup).forEach(k => {
+      if (k.startsWith('__')) return;
+      if (!k.startsWith('lc_')) return; // only restore app-owned keys
+      localStorage.setItem(k, backup[k]);
+      count++;
+    });
+
+    statusEl.style.display    = 'block';
+    statusEl.style.background = 'var(--success-light)';
+    statusEl.style.color      = 'var(--success)';
+    statusEl.textContent      = '✅ Restore সফল! ' + count + ' টি data ফিরে এসেছে।';
+    ta.value = '';
+    document.getElementById('pasteImportBtn').style.display = 'none';
+    try { statusEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch(e) {}
+
+    reloadAllData();
+    toast('Data সফলভাবে Restore হয়েছে! ✅');
+  });
+}
+// Apply default filter button style (called in init() now)
+
+// ========== PROFILE PHOTO ==========
+
+
+// ========== DUTY CALCULATOR ==========
+
+const DUTY_KEYS = ['modul', 'cbc', 'extra'];
+const DUTY_NAMES = { modul: 'Modul Man', cbc: 'CBC Filler', extra: 'Extra Others' };
+const DUTY_COLORS = { modul: '#1a56db', cbc: '#7c3aed', extra: '#d97706' };
+
+// State: rates only (counts come from OT records)
+let dutyRates    = { modul: 0, cbc: 0, extra: 0 };
+let rateEditMode = { modul: true, cbc: true, extra: true };
+let curDutyType  = null; // selected in OT form (null = nothing selected until user picks)
+
+/* ---------- DUTY TYPE SELECTOR ---------- */
+function selectDutyType(key) {
+  curDutyType = key;
+  DUTY_KEYS.forEach(k => {
+    const btn  = document.getElementById('dt-' + k);
+    const chk  = btn?.querySelector('.dt-check');
+    const isActive = (k === key);
+    if (btn) {
+      btn.style.border        = isActive ? '2px solid var(--success)' : '2px solid var(--border)';
+      btn.style.background    = isActive
+        ? 'linear-gradient(135deg,rgba(5,150,105,0.12),rgba(16,185,129,0.08))'
+        : 'var(--input-bg)';
+    }
+    if (chk) {
+      chk.style.background = isActive ? 'var(--success)' : 'var(--border)';
+      chk.style.color      = isActive ? 'white' : 'transparent';
+    }
+  });
+}
+
+/* ---------- PERSISTENCE (rates only) ---------- */
+function saveDutyState() {
+  try { localStorage.setItem('lc_duty_rates', JSON.stringify(dutyRates)); }
+  catch(e) { console.warn('Duty save failed', e); }
+}
+
+function loadDutyState() {
+  try {
+    const rates = JSON.parse(localStorage.getItem('lc_duty_rates') || '{}');
+    DUTY_KEYS.forEach(k => {
+      if (rates[k] !== undefined) dutyRates[k] = Number(rates[k]) || 0;
+      const inp = document.getElementById('rate-' + k);
+      if (inp) {
+        inp.value = dutyRates[k] || '';
+        if (dutyRates[k] > 0) {
+          inp.setAttribute('readonly', true);
+          rateEditMode[k] = false;
+        } else {
+          inp.removeAttribute('readonly');
+          rateEditMode[k] = true;
+        }
+      }
+    });
+    calcDutyEarnings();
+  } catch(e) { console.warn('Duty load failed', e); }
+}
+
+/* ---- toggleRateEdit / updateRateBtnIcon removed (dead code) ---- */
+/* All rates now edited via the single allRateEditBtn / toggleAllRates() */
+
+/* ---------- CALCULATION (from OT records) ---------- */
+function calcDutyEarnings() {
+  // Each record: earnings = dutyRate × number of running shifts
+  // (2 running shifts in 1 record = 2 হাজিরা = 2× rate)
+  let total = 0;
+  try {
+    const recs = getOTRecs().filter(r => !activeOTMonth || r.month === activeOTMonth);
+    recs.forEach(r => {
+      // BUG FIX v1.4: Old records without dutyType default to 'modul' so they
+      // are not silently skipped in the earnings calculation.
+      const k = r.dutyType || 'modul';
+      const domVal = parseFloat(document.getElementById('rate-' + k)?.value);
+      const rate = (dutyRates[k] > 0) ? dutyRates[k] : ((!isNaN(domVal) && domVal > 0) ? domVal : 0);
+      // Smart duty count: saved dutyCount takes priority; fall back to hours-based calculation
+      const hours = Number(r.hours) || 0;
+      const shiftCount = r.dutyCount
+        ? r.dutyCount
+        : (hours > 8 ? Math.ceil(hours / 8) : (Array.isArray(r.runnings) ? r.runnings.length : 1));
+      total += rate * shiftCount;
+    });
+  } catch(e) {}
+
+  const heroEl = document.getElementById('dutyTotalEarnings');
+  if (heroEl) heroEl.textContent = '৳ ' + total.toLocaleString('en-IN');
+}
+
+/* ---------- SINGLE TOGGLE FOR ALL RATES ---------- */
+let allRateEditMode = false;
+
+function toggleAllRates() {
+  allRateEditMode = !allRateEditMode;
+  const btn = document.getElementById('allRateEditBtn');
+
+  DUTY_KEYS.forEach(k => {
+    const inp = document.getElementById('rate-' + k);
+    const row = document.getElementById('rateRow-' + k);
+    if (!inp) return;
+    if (allRateEditMode) {
+      // Enter edit mode
+      inp.removeAttribute('readonly');
+      if (row) row.style.borderColor = 'var(--accent)';
+    } else {
+      // Save mode — persist values
+      const val = parseFloat(inp.value) || 0;
+      dutyRates[k] = val;
+      inp.setAttribute('readonly', true);
+      if (row) row.style.borderColor = 'var(--border)';
+    }
+  });
+
+  if (!allRateEditMode) {
+    saveDutyState();
+    calcDutyEarnings();
+    toast('Rates সেভ হয়েছে ✅');
+  } else {
+    // Focus first input
+    const first = document.getElementById('rate-modul');
+    if (first) { first.removeAttribute('readonly'); first.focus(); first.select(); }
+  }
+
+  // Update button icon
+  if (btn) {
+    if (allRateEditMode) {
+      btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+      btn.style.background = 'var(--success)';
+      btn.style.color = 'white';
+      btn.title = 'Save all rates';
+    } else {
+      btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+      btn.style.background = 'var(--accent-light)';
+      btn.style.color = 'var(--accent)';
+      btn.title = 'Edit all rates';
+    }
+  }
+}
+
+/* ---------- INIT ---------- */
+function initDutyCalc() {
+  loadDutyState();
+  selectDutyType(null);
+  renderShiftBadges();
+  renderRunningBadges();
+}
+
+// initDutyCalc() runs AFTER init() (which was called above) — correct order
+initDutyCalc();
+</script>
+
+<script>
+// ===== RIPPLE EFFECT — event delegation (works on dynamic content) =====
+function addRipple(e) {
+  const el = e.currentTarget;
+  const rect = el.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left - size / 2;
+  const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top  - size / 2;
+  const ripple = document.createElement('span');
+  ripple.className = 'ripple';
+  ripple.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px;`;
+  el.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 550);
+}
+// Attach to static elements on load
+document.querySelectorAll('.nav-card,.btn,.icon-btn,.shift-opt,.running-opt,.duty-type-btn').forEach(el => {
+  el.addEventListener('touchstart', addRipple, { passive: true });
+});
+// Event delegation for dynamically rendered elements (del-btn inside history etc.)
+document.addEventListener('touchstart', function(e) {
+  const el = e.target.closest('.del-btn,.duty-hist-del,.stepper-btn');
+  if (el) addRipple.call(el, { ...e, currentTarget: el });
+}, { passive: true });
+
+// ===== FAST CLICK (remove 300ms delay) =====
+document.addEventListener('touchstart', function() {}, { passive: true });
+
+// ===== PREVENT PULL-TO-REFRESH IN WEBVIEW / APK =====
+let _touchStartY = 0;
+document.addEventListener('touchstart', function(e) {
+  _touchStartY = e.touches[0].clientY;
+}, { passive: true });
+document.addEventListener('touchmove', function(e) {
+  const el = e.target.closest('.page-content, #home, #yearList');
+  if (!el) return;
+  if (el.scrollTop <= 0 && e.touches[0].clientY > _touchStartY) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+// ===== ESCAPE KEY CLOSES MODALS =====
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  const yearModal = document.getElementById('yearPickerModal');
+  const confModal = document.getElementById('confirmModal');
+  if (yearModal && yearModal.style.display !== 'none') { closeYearPicker(); return; }
+  if (confModal && confModal.style.display !== 'none') { confirmCancel(); return; }
+});
+
+// ===== DEBOUNCED saveEmpInfo for better performance =====
+let _empSaveTimer = null;
+const _origSaveEmpInfo = saveEmpInfo;
+// Wrap the original: immediate call on direct invocation, debounce from oninput
+window.saveEmpInfoDebounced = function() {
+  clearTimeout(_empSaveTimer);
+  _empSaveTimer = setTimeout(_origSaveEmpInfo, 400);
+};
+// Patch inputs to use debounced version
+document.querySelectorAll('#companyName,#empName,#cardNo,#deptName').forEach(el => {
+  el.removeAttribute('oninput');
+  el.addEventListener('input', function() {
+    updateGreeting();
+    clearTimeout(_empSaveTimer);
+    _empSaveTimer = setTimeout(_origSaveEmpInfo, 500);
+  });
+});
+// totalLeave needs to also update stats immediately
+const _tlEl = document.getElementById('totalLeave');
+if (_tlEl) {
+  _tlEl.removeAttribute('oninput');
+  _tlEl.addEventListener('input', function() {
+    clearTimeout(_empSaveTimer);
+    _empSaveTimer = setTimeout(function() { _origSaveEmpInfo(); updateLeaveStats(); }, 500);
+  });
+}
+
+// ===== COPY BACKUP BUTTON LOADING STATE =====
+const _origCopyBackup = copyBackup;
+window.copyBackup = function() {
+  const btn = document.getElementById('copyBackupBtn');
+  if (btn) {
+    btn.style.opacity = '0.7';
+    btn.style.pointerEvents = 'none';
+    setTimeout(() => { btn.style.opacity = ''; btn.style.pointerEvents = ''; }, 1500);
+  }
+  _origCopyBackup();
+};
+</script>
+
+
+<script>
+/* ===== Firebase config — Firebase Console > Project settings > Your apps থেকে কপি করে বসান ===== */
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDEoZsaEH6bpXiKXdHj0uQhvCTa0vicM6o",
+  authDomain: "leave-count.firebaseapp.com",
+  projectId: "leave-count",
+  storageBucket: "leave-count.firebasestorage.app",
+  messagingSenderId: "771933195621",
+  appId: "1:771933195621:web:800a7cd7c0aefea120e58c"
+};
+</script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, setDoc, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+const cfg = window.FIREBASE_CONFIG;
+const configured = cfg && cfg.apiKey && !String(cfg.apiKey).startsWith('PASTE');
+
+// sync metadata keys (lc_ prefix নেই, তাই backup/restore-এ ঢুকবে না)
+const K_TS = 'sync_ts', K_DIRTY = 'sync_dirty', K_UID = 'sync_uid';
+const rawSet = Storage.prototype.setItem, rawRemove = Storage.prototype.removeItem;
+const rawGet = Storage.prototype.getItem;
+
+function msg(text, ok) {
+  const el = $('cloudMsg'); if (!el) return;
+  el.style.display = text ? 'block' : 'none';
+  el.style.color = ok ? 'var(--success)' : 'var(--danger)';
+  el.textContent = text || '';
+}
+function status(text) { const el = $('cloudStatus'); if (el) el.textContent = text; }
+function localData() {
+  const d = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('lc_')) d[k] = rawGet.call(localStorage, k);
+  }
+  return d;
+}
+
+if (!configured) {
+  const b = $('gLoginBtn');
+  if (b) { b.disabled = true; b.style.opacity = '.5'; }
+  msg('⚠️ Firebase config এখনও বসানো হয়নি।', false);
+  window.cloudLogin = window.cloudLogout = window.cloudSyncNow = function () {};
+} else {
+  const app = initializeApp(cfg);
+  const auth = getAuth(app);
+  const db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+  let prevUid = null;
+  let user = null, unsub = null, applying = false, timer = null, uploading = false;
+
+  const isDirty = () => rawGet.call(localStorage, K_DIRTY) === '1';
+
+  // lc_ key বদলালেই debounce করে আপলোড
+  function markDirty() {
+    if (applying) return;
+    rawSet.call(localStorage, K_DIRTY, '1');
+    if (user) { clearTimeout(timer); timer = setTimeout(upload, 1500); }
+  }
+  Storage.prototype.setItem = function (k, v) {
+    rawSet.call(this, k, v);
+    if (this === localStorage && typeof k === 'string' && k.startsWith('lc_')) markDirty();
+  };
+  Storage.prototype.removeItem = function (k) {
+    rawRemove.call(this, k);
+    if (this === localStorage && typeof k === 'string' && k.startsWith('lc_')) markDirty();
+  };
+
+  async function upload() {
+    if (!user || uploading) return;
+    uploading = true;
+    try {
+      const data = localData();
+      const ts = Date.now();
+      status('⏳ আপলোড হচ্ছে...');
+      await setDoc(doc(db, 'users', user.uid), {
+        data, updatedAt: ts,
+        profile: { name: user.displayName || '', email: user.email || '', photo: user.photoURL || '' }
+      });
+      rawSet.call(localStorage, K_TS, String(ts));
+      rawRemove.call(localStorage, K_DIRTY);
+      status('✅ ক্লাউডে সেভ হয়েছে • ' + new Date(ts).toLocaleTimeString());
+    } catch (e) {
+      status('⚠️ সিঙ্ক হয়নি — নেট এলে আবার চেষ্টা হবে');
+      console.error(e);
+    } finally { uploading = false; }
+  }
+
+  function applyRemote(remote) {
+    applying = true;
+    try {
+      Object.keys(localData()).forEach(k => rawRemove.call(localStorage, k));
+      Object.keys(remote.data || {}).forEach(k => { if (k.startsWith('lc_')) rawSet.call(localStorage, k, remote.data[k]); });
+      rawSet.call(localStorage, K_TS, String(remote.updatedAt || Date.now()));
+      rawRemove.call(localStorage, K_DIRTY);
+    } finally { applying = false; }
+    if (typeof window.reloadAllData === 'function') window.reloadAllData();
+  }
+
+  let first = true;
+  function listen() {
+    if (unsub) unsub();
+    unsub = onSnapshot(doc(db, 'users', user.uid), snap => {
+      if (snap.metadata.hasPendingWrites) return;
+      const localTs = Number(rawGet.call(localStorage, K_TS) || 0);
+      const hasLocal = Object.keys(localData()).length > 0;
+      const isFirst = first; first = false;
+
+      if (!snap.exists()) {            // ক্লাউড খালি → লোকাল data আপলোড
+        if (hasLocal) upload(); else status('✅ লগইন হয়েছে');
+        return;
+      }
+      const remote = snap.data();
+      const sameUser = prevUid === user.uid;
+
+      if (!hasLocal) { applyRemote(remote); toast('ক্লাউড থেকে data ফিরে এসেছে ☁️'); status('✅ ক্লাউড থেকে data নামানো হয়েছে'); return; }
+
+      if (isFirst && (!sameUser || (isDirty() && (remote.updatedAt || 0) > localTs))) {
+        // এই ফোনে ও ক্লাউডে — দুই জায়গাতেই আলাদা data আছে
+        const useCloud = confirm('ক্লাউডে আপনার আগের data আছে।\n\nOK = ক্লাউডের data নিন (এই ফোনের data বদলে যাবে)\nCancel = এই ফোনের data রাখুন (ক্লাউডের data বদলে যাবে)');
+        if (useCloud) { applyRemote(remote); status('✅ ক্লাউডের data লোড হয়েছে'); }
+        else upload();
+        return;
+      }
+      if ((remote.updatedAt || 0) > localTs && !isDirty()) { applyRemote(remote); status('✅ অন্য ডিভাইসের আপডেট এসেছে'); return; }
+      if (isDirty()) { upload(); return; }
+      status('✅ সিঙ্ক আছে');
+    }, err => { console.error(err); status('⚠️ ক্লাউডের সাথে সংযোগ হয়নি'); });
+  }
+
+  function render() {
+    $('cloudOut').style.display = user ? 'none' : 'block';
+    $('cloudIn').style.display = user ? 'block' : 'none';
+    if (user) {
+      $('cloudName').textContent = user.displayName || 'User';
+      $('cloudEmail').textContent = user.email || '';
+      if (user.photoURL) $('cloudPhoto').src = user.photoURL;
+    }
+  }
+
+  onAuthStateChanged(auth, u => {
+    user = u; render();
+    if (u) { first = true; prevUid = rawGet.call(localStorage, K_UID); rawSet.call(localStorage, K_UID, u.uid); listen(); }
+    else if (unsub) { unsub(); unsub = null; }
+  });
+  getRedirectResult(auth).catch(e => msg('লগইন ব্যর্থ: ' + (e.code || e.message), false));
+
+  window.cloudLogin = async function () {
+    msg('');
+    try {
+      const p = new GoogleAuthProvider(); p.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, p);
+    } catch (e) {
+      if (e.code === 'auth/popup-blocked') { try { await signInWithRedirect(auth, new GoogleAuthProvider()); return; } catch (_) {} }
+      if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request')
+        msg('❌ লগইন হয়নি: ' + (e.code || e.message), false);
+    }
+  };
+  window.cloudLogout = async function () {
+    if (!confirm('লগআউট করবেন? এই ফোনের data ফোনেই থাকবে।')) return;
+    clearTimeout(timer);
+    if (isDirty()) await upload();
+    await signOut(auth); rawRemove.call(localStorage, K_UID);
+    msg('লগআউট হয়েছে।', true);
+  };
+  window.cloudSyncNow = async function () { msg(''); await upload(); };
+}
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
